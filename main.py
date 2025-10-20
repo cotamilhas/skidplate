@@ -138,16 +138,6 @@ async def on_interaction(interaction: discord.Interaction):
         )
 
 
-@bot.event
-async def on_ready():
-    try:
-        synced = await bot.tree.sync()
-        print(f"{Fore.GREEN}Synced {len(synced)} application command(s).{Style.RESET_ALL}")
-    except Exception as e:
-        print(f"{Fore.RED}Failed to sync commands: {e}{Style.RESET_ALL}")
-
-    print(f"{Fore.CYAN}Bot is online as {bot.user}{Style.RESET_ALL}")
-
 if __name__ == "__main__":
     async def main():
         try:

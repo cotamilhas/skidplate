@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from colorama import Fore, init
+from colorama import Style, Fore, init
 import sys
 init(autoreset=True)
 
@@ -20,15 +20,13 @@ class Events(commands.Cog):
         print(f"{Fore.CYAN}Python Version: {Fore.GREEN}{sys.version}")
         print(f"{Fore.CYAN}Command Prefix: {Fore.GREEN}{self.bot.command_prefix}")
 
-        if self.bot.guilds:
-            print(f"\n{Fore.CYAN}Guilds connected to:")
-            for guild in self.bot.guilds:
-                print(f"{Fore.GREEN}{guild.name} {Fore.YELLOW}({guild.id})")
-                print(f"Owner: {Fore.GREEN}{guild.owner} {Fore.YELLOW}({guild.owner.id})")
-                print(f"Members: {Fore.GREEN}{guild.member_count}\n")
-                
-        else:
-            print(f"{Fore.RED}[EVENTS] The bot is not connected to any servers.\n")
+        try:
+            synced = await self.bot.tree.sync()
+            print(f"{Fore.GREEN}Synced {len(synced)} application command(s).{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Failed to sync commands: {e}{Style.RESET_ALL}")
+
+        print(f"{Fore.CYAN}Bot is online as {self.bot.user}{Style.RESET_ALL}")
 
 
 async def setup(bot):
