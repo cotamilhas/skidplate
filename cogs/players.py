@@ -138,8 +138,8 @@ class Players(commands.Cog):
             return
 
         playerAvatar = await self.getPlayerAvatar(playerId)
-        date = playerInfo.get("created_at")
-        profileCreationDate = await self.toDiscordTimestamp(date)
+        creation_date = playerInfo.get("created_at")
+        profile_creation_date = await self.toDiscordTimestamp(creation_date)
 
         embed = discord.Embed(
             title=f"{playerInfo.get('username', username)}",
@@ -153,7 +153,7 @@ class Players(commands.Cog):
         embed.add_field(name="Online Races", value=playerInfo.get("online_races"))
         embed.add_field(name="Online Wins", value=playerInfo.get("online_wins"))
         embed.add_field(name="Rating", value=playerInfo.get("rating"))
-        embed.add_field(name="Created at", value=profileCreationDate)
+        embed.add_field(name="Created at", value=profile_creation_date)
 
         files = []
 

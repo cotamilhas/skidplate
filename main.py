@@ -137,6 +137,11 @@ async def on_interaction(interaction: discord.Interaction):
             f"| {location}"
         )
 
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
+    print("------")
 
 if __name__ == "__main__":
     async def main():
