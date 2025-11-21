@@ -75,17 +75,19 @@ class Leaderboard(commands.Cog):
                     seconds = int(parts[1])
                     milliseconds = int(parts[2])
                     return f"{minutes:02}:{seconds:02}:{milliseconds:03}"
-                elif len(parts) == 2:  # ss:ms
+                elif len(parts) == 2:
                     seconds = int(parts[0])
                     milliseconds = int(parts[1])
                     return f"00:{seconds:02}:{milliseconds:03}"
-            total_ms = int(float(time_str) * 1000)
+
+            total_ms = round(float(time_str) * 1000)
             minutes = total_ms // 60000
             seconds = (total_ms % 60000) // 1000
             milliseconds = total_ms % 1000
             return f"{minutes:02}:{seconds:02}:{milliseconds:03}"
         except Exception:
             return time_str
+
         
     # idk how am I going to implement this yet
     @app_commands.command(
@@ -235,7 +237,7 @@ class Leaderboard(commands.Cog):
 
         if track_info:
             embed.description = (
-                f"**{track_info['name']}**\n"
+                f"`{track_info['name']}`\n"
                 f"By *{track_info['creator']}*\n\n"
             )
             embed.set_thumbnail(url=track_info["thumbnail"])

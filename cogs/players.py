@@ -7,190 +7,161 @@ import os
 from datetime import datetime
 from config import EMBED_COLOR, URL, DEBUG_MODE
 
+
+def debug(msg: str):
+    if DEBUG_MODE:
+        print(f"[DEBUG] {msg}")
+
 class Players(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.session = aiohttp.ClientSession()
 
-    async def toDiscordTimestamp(self, isoDate):
-        dt = datetime.fromisoformat(isoDate)
-        timestamp = int(dt.timestamp())
-        return f"<t:{timestamp}:F>"
+    async def cog_unload(self):
+        await self.session.close()
 
-    async def getPlayerId(self, username: str) -> str:
-        url = URL + f"/players/to_id.xml?username={username}"
-        if DEBUG_MODE:
-            print(f"[DEBUG] Fetching Player ID for username: {username}")
-            print(f"[DEBUG] Request URL: {url}")
+    @staticmethod
+    def to_discord_timestamp(iso_date: str) -> str:
+        dt = datetime.fromisoformat(iso_date)
+        return f"<t:{int(dt.timestamp())}:F>"
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+    async def fetch_xml(self, url: str) -> ET.Element | None:
+        debug(f"GET XML: {url}")
+        try:
+            async with self.session.get(url) as resp:
                 if resp.status != 200:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] HTTP Error {resp.status} while fetching player ID.")
+                    debug(f"HTTP {resp.status} while fetching XML")
                     return None
+                text = await resp.text()
+        except Exception as e:
+            debug(f"Request error: {e}")
+            return None
 
-                data = await resp.text()
-                if DEBUG_MODE:
-                    print(f"[DEBUG] XML Response (Player ID): {data[:200]}...")
+        try:
+            return ET.fromstring(text)
+        except ET.ParseError as e:
+            debug(f"XML parse error: {e}")
+            return None
 
-                try:
-                    root = ET.fromstring(data)
-                except ET.ParseError as e:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] XML Parse Error: {e}")
-                    return None
-
-                playerId = root.find(".//player_id")
-                if playerId is not None:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] Found playerId: {playerId.text}")
-                    return playerId.text
-                else:
-                    if DEBUG_MODE:
-                        print("[DEBUG] playerId not found in XML.")
-                    return None
-
-    async def getPlayerInfo(self, playerId: str) -> dict:
-        url = URL + f"/players/{playerId}/info.xml"
-        if DEBUG_MODE:
-            print(f"[DEBUG] Fetching Player Info for ID: {playerId}")
-            print(f"[DEBUG] Request URL: {url}")
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+    async def fetch_bytes(self, url: str) -> bytes | None:
+        debug(f"GET BYTES: {url}")
+        try:
+            async with self.session.get(url) as resp:
                 if resp.status != 200:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] HTTP Error {resp.status} while fetching player info.")
+                    debug(f"HTTP {resp.status} while fetching bytes")
                     return None
+                return await resp.read()
+        except Exception as e:
+            debug(f"Error loading bytes: {e}")
+            return None
 
-                data = await resp.text()
-                if DEBUG_MODE:
-                    print(f"[DEBUG] XML Response (Player Info): {data[:200]}...")
+    async def get_player_id(self, username: str) -> str | None:
+        url = f"{URL}/players/to_id.xml?username={username}"
+        root = await self.fetch_xml(url)
+        if root is None:
+            return None
 
-                try:
-                    root = ET.fromstring(data)
-                except ET.ParseError as e:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] XML Parse Error: {e}")
-                    return None
+        node = root.find(".//player_id")
+        if node is not None:
+            debug(f"Found player ID: {node.text}")
+            return node.text
 
-                playerElem = root.find(".//player")
-                if playerElem is not None:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] Player attributes: {playerElem.attrib}")
-                    return playerElem.attrib
-                else:
-                    if DEBUG_MODE:
-                        print("[DEBUG] Element <player> not found.")
-                    return None
-                
-    async def getPlayerAvatar(self, playerId: str) -> str:
-        url = URL + f"/player_avatars/MNR/{playerId}/secondary.png"
-        if DEBUG_MODE:
-            print(f"[DEBUG] Fetching Player Avatar for ID: {playerId}")
-            print(f"[DEBUG] Request URL: {url}")
+        debug("player_id not found")
+        return None
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] HTTP Error {resp.status} while fetching player avatar.")
-                    return None
+    async def get_player_info(self, player_id: str) -> dict | None:
+        url = f"{URL}/players/{player_id}/info.xml"
+        root = await self.fetch_xml(url)
+        if root is None:
+            return None
 
-                avatarUrl = str(resp.url)
-                if DEBUG_MODE:
-                    print(f"[DEBUG] Avatar URL: {avatarUrl}")
+        player = root.find(".//player")
+        if player is not None:
+            debug(f"Player info: {player.attrib}")
+            return player.attrib
 
-                return avatarUrl
-            
-    async def getPlayerHeadAvatar(self, playerId: str) -> str:
-        url = URL + f"/player_avatars/MNR/{playerId}/primary.png"
-        if DEBUG_MODE:
-            print(f"[DEBUG] Fetching Player Avatar for ID: {playerId}")
-            print(f"[DEBUG] Request URL: {url}")
+        debug("player element not found")
+        return None
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] HTTP Error {resp.status} while fetching player avatar.")
-                    return None
+    async def get_player_avatar(self, player_id: str, primary: bool = False) -> str | None:
+        file = "primary.png" if primary else "secondary.png"
+        url = f"{URL}/player_avatars/MNR/{player_id}/{file}"
 
-                avatarHeadUrl = str(resp.url)
-                if DEBUG_MODE:
-                    print(f"[DEBUG] Avatar URL: {avatarHeadUrl}")
+        debug(f"Avatar URL: {url}")
 
-                return avatarHeadUrl
+        async with self.session.get(url) as resp:
+            if resp.status == 200:
+                return str(resp.url)
+
+        debug("Avatar not found")
+        return None
 
     @app_commands.command(name="player", description="Shows information about a player.")
     @app_commands.describe(username="The username of the player you want to view.")
     async def players(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer()
 
-        playerId = await self.getPlayerId(username)
-        if not playerId:
-            await interaction.followup.send(f"Could not find player `{username}`.")
-            return
+        player_id = await self.get_player_id(username)
+        if not player_id:
+            return await interaction.followup.send(f"Could not find player `{username}`.")
 
-        playerInfo = await self.getPlayerInfo(playerId)
-        if not playerInfo:
-            await interaction.followup.send(f"Could not get information for player with ID `{playerId}`.")
-            return
+        info = await self.get_player_info(player_id)
+        if not info:
+            return await interaction.followup.send(f"Could not fetch data for player ID `{player_id}`.")
 
-        playerAvatar = await self.getPlayerAvatar(playerId)
-        creation_date = playerInfo.get("created_at")
-        profile_creation_date = await self.toDiscordTimestamp(creation_date)
+        avatar_url = await self.get_player_avatar(player_id)
+        skill_level = info.get("skill_level_id")
+        skill_img_path = f"img/levels/{skill_level}.PNG"
+
+        creation_timestamp = self.to_discord_timestamp(info["created_at"])
 
         embed = discord.Embed(
-            title=f"{playerInfo.get('username', username)}",
-            color=EMBED_COLOR,
-            description=playerInfo.get("quote", "No description.")
+            title=info.get("username", username),
+            description=info.get("quote", "No description."),
+            color=EMBED_COLOR
         )
 
-        skillLevel = playerInfo.get("skill_level_id")
-        imageSkillLevel = f"img/levels/{skillLevel}.PNG"
-
-        embed.add_field(name="Online Races", value=playerInfo.get("online_races"))
-        embed.add_field(name="Online Wins", value=playerInfo.get("online_wins"))
-        embed.add_field(name="Rating", value=playerInfo.get("rating"))
-        embed.add_field(name="Created at", value=profile_creation_date)
+        embed.add_field(name="Online Races", value=info.get("online_races"))
+        embed.add_field(name="Online Wins", value=info.get("online_wins"))
+        embed.add_field(name="Rating", value=info.get("rating"))
+        embed.add_field(name="Longest Drift", value=info.get("longest_drift"))
+        embed.add_field(name="Longest Air Time", value=info.get("longest_hang_time"))
+        embed.add_field(name="Longest Win Streak", value=info.get("longest_win_streak"))
+        embed.add_field(name="Created At", value=creation_timestamp)
 
         files = []
 
-        if playerAvatar:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(playerAvatar) as resp:
-                    if resp.status == 200:
-                        avatar_bytes = await resp.read()
-                        avatar_path = f"temp_avatar_{playerId}.png"
-                        with open(avatar_path, "wb") as f:
-                            f.write(avatar_bytes)
-                        avatar_file = discord.File(avatar_path, filename="avatar.png")
-                        embed.set_image(url="attachment://avatar.png")
-                        files.append(avatar_file)
-                    else:
-                        fallback = discord.File("img/secondary.png", filename="secondary.png")
-                        embed.set_image(url="attachment://secondary.png")
-                        files.append(fallback)
-        else:
+        if avatar_url:
+            avatar_bytes = await self.fetch_bytes(avatar_url)
+            if avatar_bytes:
+                temp_path = f"temp_avatar_{player_id}.png"
+                try:
+                    with open(temp_path, "wb") as f:
+                        f.write(avatar_bytes)
+                    files.append(discord.File(temp_path, filename="avatar.png"))
+                    embed.set_image(url="attachment://avatar.png")
+                except Exception as e:
+                    debug(f"File write error: {e}")
+
+        if not files:
             fallback = discord.File("img/secondary.png", filename="secondary.png")
-            embed.set_image(url="attachment://secondary.png")
             files.append(fallback)
+            embed.set_image(url="attachment://secondary.png")
 
-        if os.path.exists(imageSkillLevel):
-            skill_file = discord.File(imageSkillLevel, filename=f"{skillLevel}.PNG")
-            embed.set_thumbnail(url=f"attachment://{skillLevel}.PNG")
+        if os.path.exists(skill_img_path):
+            skill_file = discord.File(skill_img_path, filename=f"{skill_level}.PNG")
             files.append(skill_file)
+            embed.set_thumbnail(url=f"attachment://{skill_level}.PNG")
 
-        embed.set_footer(text=f"Player ID: {playerId}")
+        embed.set_footer(text=f"Player ID: {player_id}")
 
-        if DEBUG_MODE:
-            print(f"[DEBUG] Sending embed for player {username} with {len(files)} file(s) attached")
+        debug(f"Sending embed with {len(files)} file(s)")
 
         await interaction.followup.send(embed=embed, files=files)
 
-        if os.path.exists(f"temp_avatar_{playerId}.png"):
-            os.remove(f"temp_avatar_{playerId}.png")
+        temp_avatar_path = f"temp_avatar_{player_id}.png"
+        if os.path.exists(temp_avatar_path):
+            os.remove(temp_avatar_path)
 
 
 async def setup(bot):
