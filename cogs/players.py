@@ -95,6 +95,37 @@ class Players(commands.Cog):
 
         debug("Avatar not found")
         return None
+    
+    async def presence_lookup(self, presence: str) -> str:
+        match presence:
+            case "OFFLINE":
+                return "Offline"
+            case "ONLINE":
+                return "Online"
+            case "INGAME":
+                return "In Game"
+            case "LOBBY":
+                return "Lobby"
+            case "WEB":
+                return "Web"
+            case "CAREER_CHALLENGE":
+                return "Career Challenge"
+            case "CASUAL_RACE":
+                return "Casual Race"
+            case "IDLING":
+                return "Idling"
+            case "IN_POD":
+                return "In Pod"
+            case "IN_STUDIO":
+                return "In Studio"
+            case "KART_PARK_CHALLENGE":
+                return "Kart Park Challenge"
+            case "RANKED_RACE":
+                return "Ranked Race"
+            case "ROAMING":
+                return "Roaming"
+            case _:
+                return presence
 
     @app_commands.command(name="player", description="Shows information about a player.")
     @app_commands.describe(username="The username of the player you want to view.")
@@ -121,13 +152,20 @@ class Players(commands.Cog):
             color=EMBED_COLOR
         )
 
-        embed.add_field(name="Online Races", value=info.get("online_races"))
-        embed.add_field(name="Online Wins", value=info.get("online_wins"))
-        embed.add_field(name="Rating", value=info.get("rating"))
-        embed.add_field(name="Longest Drift", value=info.get("longest_drift"))
-        embed.add_field(name="Longest Air Time", value=info.get("longest_hang_time"))
-        embed.add_field(name="Longest Win Streak", value=info.get("longest_win_streak"))
-        embed.add_field(name="Created At", value=creation_timestamp)
+        # temporary fix lol
+        online_races = int(info.get("online_finished")) + int(info.get("online_forfeit")) + int(info.get("online_disconnected"))
+
+        embed.add_field(name="Online Races", value=online_races, inline=True)
+        embed.add_field(name="Online Wins", value=info.get("online_wins"), inline=True)
+        embed.add_field(name="Rating", value=info.get("rating"), inline=True)
+        embed.add_field(name="Longest Drift", value=info.get("longest_drift"), inline=True)
+        embed.add_field(name="Longest Air Time", value=info.get("longest_hang_time"), inline=True)
+        embed.add_field(name="Longest Win Streak", value=info.get("longest_win_streak"), inline=True)
+
+        presence = info.get("presence")
+        embed.add_field(name="Presence", value=presence, inline=False)
+
+        embed.add_field(name="Created At", value=creation_timestamp, inline=False)
 
         files = []
 
