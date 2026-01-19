@@ -6,7 +6,53 @@ import xml.etree.ElementTree as ET
 import os
 from datetime import datetime
 from config import EMBED_COLOR, URL, DEBUG_MODE
+from config import FULL, HALF, EMPTY
 
+
+def presence_lookup(presence: str) -> str:
+        match presence:
+            case "OFFLINE":
+                return "Offline"
+            case "ONLINE":
+                return "Online"
+            case "INGAME":
+                return "In Game"
+            case "LOBBY":
+                return "Lobby"
+            case "WEB":
+                return "Web"
+            case "CAREER_CHALLENGE":
+                return "Career Challenge"
+            case "CASUAL_RACE":
+                return "Casual Race"
+            case "IDLING":
+                return "Idling"
+            case "IN_POD":
+                return "In Pod"
+            case "IN_STUDIO":
+                return "In Studio"
+            case "KART_PARK_CHALLENGE":
+                return "Kart Park Challenge"
+            case "RANKED_RACE":
+                return "Ranked Race"
+            case "ROAMING":
+                return "Roaming"
+            case _:
+                return presence
+
+def rating_to_stars(rating: float) -> str:
+    try:
+        rating = float(rating)
+    except:
+        return str(rating)
+    
+    rating = max(0.0, min(5.0, rating))
+
+    full = int(rating)
+    half = 1 if (rating - full) >= 0.5 else 0
+    empty = 5 - full - half
+
+    return f"{FULL * full}{HALF * half}{EMPTY * empty}"
 
 def debug(msg: str):
     if DEBUG_MODE:
@@ -95,37 +141,6 @@ class Players(commands.Cog):
 
         debug("Avatar not found")
         return None
-    
-    async def presence_lookup(self, presence: str) -> str:
-        match presence:
-            case "OFFLINE":
-                return "Offline"
-            case "ONLINE":
-                return "Online"
-            case "INGAME":
-                return "In Game"
-            case "LOBBY":
-                return "Lobby"
-            case "WEB":
-                return "Web"
-            case "CAREER_CHALLENGE":
-                return "Career Challenge"
-            case "CASUAL_RACE":
-                return "Casual Race"
-            case "IDLING":
-                return "Idling"
-            case "IN_POD":
-                return "In Pod"
-            case "IN_STUDIO":
-                return "In Studio"
-            case "KART_PARK_CHALLENGE":
-                return "Kart Park Challenge"
-            case "RANKED_RACE":
-                return "Ranked Race"
-            case "ROAMING":
-                return "Roaming"
-            case _:
-                return presence
 
     @app_commands.command(name="player", description="Shows information about a player.")
     @app_commands.describe(username="The username of the player you want to view.")
@@ -157,12 +172,12 @@ class Players(commands.Cog):
 
         embed.add_field(name="Online Races", value=online_races, inline=True)
         embed.add_field(name="Online Wins", value=info.get("online_wins"), inline=True)
-        embed.add_field(name="Rating", value=info.get("rating"), inline=True)
+        embed.add_field(name="Rating", value=rating_to_stars(info.get("rating")), inline=True)
         embed.add_field(name="Longest Drift", value=info.get("longest_drift"), inline=True)
         embed.add_field(name="Longest Air Time", value=info.get("longest_hang_time"), inline=True)
         embed.add_field(name="Longest Win Streak", value=info.get("longest_win_streak"), inline=True)
 
-        presence = info.get("presence")
+        presence = presence_lookup(info.get("presence"))
         embed.add_field(name="Presence", value=presence, inline=False)
 
         embed.add_field(name="Created At", value=creation_timestamp, inline=False)

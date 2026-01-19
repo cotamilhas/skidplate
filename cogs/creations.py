@@ -4,7 +4,22 @@ from discord import app_commands
 import aiohttp
 import xml.etree.ElementTree as ET
 from config import EMBED_COLOR, URL, DEBUG_MODE
+from config import FULL, HALF, EMPTY
 
+
+def rating_to_stars(rating: float) -> str:
+    try:
+        rating = float(rating)
+    except:
+        return str(rating)
+    
+    rating = max(0.0, min(5.0, rating))
+
+    full = int(rating)
+    half = 1 if (rating - full) >= 0.5 else 0
+    empty = 5 - full - half
+
+    return f"{FULL * full}{HALF * half}{EMPTY * empty}"
 
 def debug(msg: str):
     if DEBUG_MODE:
@@ -126,11 +141,13 @@ class Creations(commands.Cog):
                 short = desc if len(desc) <= 200 else desc[:200].rstrip() + "..."
             else:
                 short = "No description provided."
+                
+            rating_stars = rating_to_stars(rating)
 
             field_value = (
                 f"Creator: **{username}**\n"
                 f"Points Today: **{points_today}** | Total Points: **{points}**\n"
-                f"Rating: **{rating}** | Downloads: **{downloads}**\n"
+                f"Rating: **{rating_stars}** | Downloads: **{downloads}**\n"
                 f"{short}"
             )
 
