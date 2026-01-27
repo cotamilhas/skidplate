@@ -206,7 +206,10 @@ class Players(commands.Cog):
             files.append(skill_file)
             embed.set_thumbnail(url=f"attachment://{skill_level}.PNG")
 
-        embed.set_footer(text=f"Player ID: {player_id}")
+        embed.set_footer(
+            text=f"Player ID: {player_id} | Requested by {interaction.user.name}",
+            icon_url=interaction.user.avatar.url
+        )
 
         debug(f"Sending embed with {len(files)} file(s)")
 

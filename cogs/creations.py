@@ -119,8 +119,7 @@ class Creations(commands.Cog):
 
         embed = discord.Embed(
             title=title,
-            color=EMBED_COLOR,
-            timestamp=discord.utils.utcnow()
+            color=EMBED_COLOR
         )
 
         first = creations[0]
@@ -157,9 +156,7 @@ class Creations(commands.Cog):
                 inline=False
             )
 
-        embed.set_footer(
-            text=f"Requested by {interaction.user.display_name}"
-        )
+        embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
 
         await interaction.followup.send(embed=embed)
 

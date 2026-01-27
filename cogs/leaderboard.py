@@ -89,61 +89,61 @@ class Leaderboard(commands.Cog):
             return time_str
 
         
-    # idk how am I going to implement this yet
-    @app_commands.command(
-        name="leaderboard",
-        description="Shows the top players or creators on the leaderboard."
-    )
-    @app_commands.choices(
-        board_type=LEADERBOARD_TYPE_CHOICES,
-        game_type=GAME_TYPE_CHOICES,
-        platform=PLATFORM_CHOICES
-    )
-    async def leaderboard(
-        self,
-        interaction: discord.Interaction,
-        board_type: app_commands.Choice[str] = None,
-        game_type: app_commands.Choice[str] = None,
-        platform: app_commands.Choice[str] = None,
-        page: int = 1
-    ):
-        await interaction.response.defer()
+    # # idk how am I going to implement this yet
+    # @app_commands.command(
+    #     name="leaderboard",
+    #     description="Shows the top players or creators on the leaderboard."
+    # )
+    # @app_commands.choices(
+    #     board_type=LEADERBOARD_TYPE_CHOICES,
+    #     game_type=GAME_TYPE_CHOICES,
+    #     platform=PLATFORM_CHOICES
+    # )
+    # async def leaderboard(
+    #     self,
+    #     interaction: discord.Interaction,
+    #     board_type: app_commands.Choice[str] = None,
+    #     game_type: app_commands.Choice[str] = None,
+    #     platform: app_commands.Choice[str] = None,
+    #     page: int = 1
+    # ):
+    #     await interaction.response.defer()
 
-        type_value = board_type.value if board_type else "LIFETIME"
-        game_type_value = game_type.value if game_type else "OVERALL"
-        platform_value = platform.value if platform else "PS3"
+    #     type_value = board_type.value if board_type else "LIFETIME"
+    #     game_type_value = game_type.value if game_type else "OVERALL"
+    #     platform_value = platform.value if platform else "PS3"
 
-        url = (
-            f"{URL}/leaderboards/view.xml"
-            f"?type={type_value}&game_type={game_type_value}"
-            f"&platform={platform_value}&page={page}&per_page=10"
-        )
+    #     url = (
+    #         f"{URL}/leaderboards/view.xml"
+    #         f"?type={type_value}&game_type={game_type_value}"
+    #         f"&platform={platform_value}&page={page}&per_page=10"
+    #     )
 
-        if DEBUG_MODE:
-            print(f"[DEBUG] Fetching leaderboard: {url}")
+    #     if DEBUG_MODE:
+    #         print(f"[DEBUG] Fetching leaderboard: {url}")
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    await interaction.followup.send("Failed to fetch leaderboard data.")
-                    return
-                data = await resp.text()
+    #     async with aiohttp.ClientSession() as session:
+    #         async with session.get(url) as resp:
+    #             if resp.status != 200:
+    #                 await interaction.followup.send("Failed to fetch leaderboard data.")
+    #                 return
+    #             data = await resp.text()
 
-        try:
-            root = ET.fromstring(data)
-        except ET.ParseError as e:
-            await interaction.followup.send(f"XML Parse Error: {e}")
-            return
+    #     try:
+    #         root = ET.fromstring(data)
+    #     except ET.ParseError as e:
+    #         await interaction.followup.send(f"XML Parse Error: {e}")
+    #         return
 
-        leaderboard_elem = root.find(".//leaderboard")
-        if leaderboard_elem is None:
-            await interaction.followup.send("No leaderboard data found.")
-            return
+    #     leaderboard_elem = root.find(".//leaderboard")
+    #     if leaderboard_elem is None:
+    #         await interaction.followup.send("No leaderboard data found.")
+    #         return
 
-        match game_type_value:
+    #     match game_type_value:
 
-            case _:
-                await interaction.followup.send("Nothing implemented yet.")
+    #         case _:
+    #             await interaction.followup.send("Nothing implemented yet.")
 
     @app_commands.command(
         name="hotlap",
@@ -250,7 +250,7 @@ class Leaderboard(commands.Cog):
                 inline=False
             )
 
-        embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+        embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
         await interaction.followup.send(embed=embed)
 
 
