@@ -36,6 +36,9 @@ class Leaderboard(commands.Cog):
         app_commands.Choice(name="PSV", value="PSV")
     ]
     
+    async def cog_unload(self):
+        await self.session.close()
+    
     async def get_track_info(self, track_idx: int):
         track_url = f"{URL}/player_creations/{track_idx}.xml"
 
@@ -147,7 +150,7 @@ class Leaderboard(commands.Cog):
 
     @app_commands.command(
         name="hotlap",
-        description="Shows the top 10 fastest hotlap times (PS3 only)"
+        description="Shows the top 10 fastest hotlap times (PS3)"
     )
     async def hotlap(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -231,7 +234,7 @@ class Leaderboard(commands.Cog):
         track_info = await self.get_track_info(track_idx)
 
         embed = discord.Embed(
-            title="Hot Lap Leaderboard (PS3)",
+            title="Hot Lap Leaderboard",
             color=EMBED_COLOR
         )
 
