@@ -30,11 +30,11 @@ def presence_lookup(presence: str) -> str:
             case "IN_POD":
                 return "In Pod"
             case "IN_STUDIO":
-                return "In Studio"
+                return "Creation Station"
             case "KART_PARK_CHALLENGE":
-                return "Kart Park Challenge"
+                return "Kart Park Challenge" # what is this
             case "RANKED_RACE":
-                return "Ranked Race"
+                return "XP Race"
             case "ROAMING":
                 return "Roaming"
             case _:

@@ -137,7 +137,7 @@ class Creations(commands.Cog):
 
             if desc:
                 desc = desc.strip()
-                short = desc if len(desc) <= 200 else desc[:200].rstrip() + "..."
+                short = desc if len(desc) <= 250 else desc[:250].rstrip() + "..."
             else:
                 short = "No description provided."
                 
@@ -146,8 +146,8 @@ class Creations(commands.Cog):
             field_value = (
                 f"Creator: **{username}**\n"
                 f"Points Today: **{points_today}** | Total Points: **{points}**\n"
-                f"Rating: **{rating_stars}** | Downloads: **{downloads}**\n"
-                f"{short}"
+                f"Rating: **{rating_stars}** | Total Downloads: **{downloads}**\n"
+                f"> {short}"
             )
 
             embed.add_field(
