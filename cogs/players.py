@@ -172,7 +172,7 @@ class Players(commands.Cog):
 
         embed.add_field(name="Online Races", value=online_races, inline=True)
         embed.add_field(name="Online Wins", value=info.get("online_wins"), inline=True)
-        embed.add_field(name="Rating", value=rating_to_stars(info.get("rating")), inline=True)
+        embed.add_field(name="Rating", value=rating_to_stars(info.get("star_rating")), inline=True)
         embed.add_field(name="Longest Drift", value=info.get("longest_drift"), inline=True)
         embed.add_field(name="Longest Air Time", value=info.get("longest_hang_time"), inline=True)
         embed.add_field(name="Longest Win Streak", value=info.get("longest_win_streak"), inline=True)

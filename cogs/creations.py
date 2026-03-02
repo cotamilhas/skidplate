@@ -85,7 +85,7 @@ class Creations(commands.Cog):
                 username = elem.attrib.get("username", "Unknown")
                 points_today = elem.attrib.get("points_today", "0")
                 points = elem.attrib.get("points", "0")
-                rating = elem.attrib.get("rating", "N/A")
+                rating = elem.attrib.get("star_rating", "N/A")
                 downloads = elem.attrib.get("downloads", "0")
                 description = elem.attrib.get("description", "")
                 thumbnail = f"{URL}/player_creations/{cid}/preview_image.png" if cid else None
@@ -96,7 +96,7 @@ class Creations(commands.Cog):
                     "username": username,
                     "points_today": points_today,
                     "points": points,
-                    "rating": rating,
+                    "star_rating": rating,
                     "downloads": downloads,
                     "description": description,
                     "thumbnail": thumbnail
@@ -131,7 +131,7 @@ class Creations(commands.Cog):
             username = c.get("username", "Unknown")
             points_today = c.get("points_today", "0")
             points = c.get("points", "0")
-            rating = c.get("rating", "N/A")
+            rating = c.get("star_rating", "N/A")
             downloads = c.get("downloads", "0")
             desc = c.get("description", "")
 
