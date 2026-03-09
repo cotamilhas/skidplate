@@ -15,3 +15,7 @@ URL = "http://example.com:10050"
 FULL = "<:full:1234567891234567890>"
 HALF = "<:half:1234567891234567890>"
 EMPTY = "<:empty:1234567891234567890>"
+
+# Player Settings
+# Option stuff, not present in the WEB API
+SHOW_WIN_RATE = False

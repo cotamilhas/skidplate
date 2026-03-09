@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 from config import EMBED_COLOR, URL, DEBUG_MODE
 from config import FULL, HALF, EMPTY
+from config import SHOW_WIN_RATE
 
 
 def presence_lookup(presence: str) -> str:
@@ -169,10 +170,17 @@ class Players(commands.Cog):
 
         # temporary fix lol
         online_races = int(info.get("online_finished")) + int(info.get("online_forfeit")) + int(info.get("online_disconnected"))
-
+        online_wins = int(info.get("online_wins"))
+        win_rate = (online_wins / online_races) * 100 if online_races > 0 else 0
+        
+        embed.add_field(name="Rating", value=rating_to_stars(info.get("star_rating")), inline=False)
+        
         embed.add_field(name="Online Races", value=online_races, inline=True)
-        embed.add_field(name="Online Wins", value=info.get("online_wins"), inline=True)
-        embed.add_field(name="Rating", value=rating_to_stars(info.get("star_rating")), inline=True)
+        embed.add_field(name="Online Wins", value=online_wins, inline=True)
+        
+        if SHOW_WIN_RATE:
+            embed.add_field(name="Win Rate", value=f"{win_rate:.2f}%", inline=True)
+            
         embed.add_field(name="Longest Drift", value=info.get("longest_drift"), inline=True)
         embed.add_field(name="Longest Air Time", value=info.get("longest_hang_time"), inline=True)
         embed.add_field(name="Longest Win Streak", value=info.get("longest_win_streak"), inline=True)
