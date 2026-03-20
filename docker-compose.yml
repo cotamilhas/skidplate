@@ -1,0 +1,11 @@
+version: '3.8'
+services:
+  skidplate:
+    build: .
+    container_name: skidplate-bot
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - ./cogs:/app/cogs
+      - ./config.py:/app/config.py
