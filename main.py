@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timezone
 from colorama import Fore, Style, init
 from config import TOKEN, COMMAND_PREFIX, EMBED_COLOR, INTENTS, DEBUG_MODE
+from utils import debug
 
 init(autoreset=True)
 

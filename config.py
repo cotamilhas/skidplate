@@ -1,21 +1,25 @@
 import discord
+import os
+from dotenv import load_dotenv
 
-TOKEN = ""
-COMMAND_PREFIX = "!"
+load_dotenv()
+
+# Discord Configuration
+TOKEN = os.getenv("DISCORD_TOKEN", "")
+COMMAND_PREFIX = os.getenv("COMMAND_PREFIX", "!")
 EMBED_COLOR = discord.Color.yellow()
-INTENTS = discord.Intents.default()
-DEBUG_MODE = False
-URL = "http://example.com:10050"
+INTENTS = discord.Intents.all()
+
+# API Configuration
+URL = os.getenv("API_URL", "http://example.com:10050")
+
+# Debug Mode
+DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
 # Star Emojis
-# You need to replace these with your actual emoji IDs
-# Add them to your server and replace like down below
-# I will leave them in the repository in case you want to use them
-
-FULL = "<:full:1234567891234567890>"
-HALF = "<:half:1234567891234567890>"
-EMPTY = "<:empty:1234567891234567890>"
+FULL = os.getenv("FULL_EMOJI", "<:full:1234567891234567890>")
+HALF = os.getenv("HALF_EMOJI", "<:half:1234567891234567890>")
+EMPTY = os.getenv("EMPTY_EMOJI", "<:empty:1234567891234567890>")
 
 # Player Settings
-# Option stuff, not present in the WEB API
-SHOW_WIN_RATE = False
+SHOW_WIN_RATE = os.getenv("SHOW_WIN_RATE", "false").lower() == "true"

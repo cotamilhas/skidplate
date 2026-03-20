@@ -3,12 +3,15 @@ from discord.ext import commands
 from discord import app_commands
 import aiohttp
 import xml.etree.ElementTree as ET
-from decimal import Decimal, ROUND_HALF_UP
 from config import EMBED_COLOR, URL, DEBUG_MODE
+from utils import debug, format_time, CreationDataFetcher
+
 
 class Leaderboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.session = aiohttp.ClientSession()
+        self.creation_fetcher = CreationDataFetcher(self.session, URL)
 
     LEADERBOARD_TYPE_CHOICES = [
         app_commands.Choice(name="Daily", value="DAILY"),
@@ -39,121 +42,6 @@ class Leaderboard(commands.Cog):
     
     async def cog_unload(self):
         await self.session.close()
-    
-    async def get_track_info(self, track_idx: int):
-        track_url = f"{URL}/player_creations/{track_idx}.xml"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(track_url) as resp:
-                if resp.status != 200:
-                    return None
-
-                data = await resp.text()
-
-        try:
-            root = ET.fromstring(data)
-            track_elem = root.find(".//player_creation")
-            if track_elem is None:
-                return None
-
-            track_name = track_elem.attrib.get("name", "Unknown Track")
-            creator = track_elem.attrib.get("username", "Unknown Creator")
-            track_id = track_elem.attrib.get("id")
-
-            thumbnail_url = f"{URL}/player_creations/{track_id}/preview_image.png"
-
-            return {
-                "name": track_name,
-                "creator": creator,
-                "thumbnail": thumbnail_url
-            }
-        except ET.ParseError:
-            return None
-        
-    def format_time(self, time_str):
-        try:
-            if ":" in time_str:
-                parts = time_str.split(":")
-                if len(parts) == 3:
-                    minutes = int(parts[0])
-                    seconds = int(parts[1])
-                    milliseconds = int(parts[2])
-                    return f"{minutes:02}:{seconds:02}:{milliseconds:03}"
-                elif len(parts) == 2:
-                    seconds = int(parts[0])
-                    milliseconds = int(parts[1])
-                    return f"00:{seconds:02}:{milliseconds:03}"
-
-            total_ms = int(
-                (Decimal(time_str) * 1000)
-                .quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-            )
-
-            minutes = total_ms // 60000
-            seconds = (total_ms % 60000) // 1000
-            milliseconds = total_ms % 1000
-
-            return f"{minutes:02}:{seconds:02}:{milliseconds:03}"
-
-        except Exception:
-            return time_str
-
-        
-    # # idk how am I going to implement this yet
-    # @app_commands.command(
-    #     name="leaderboard",
-    #     description="Shows the top players or creators on the leaderboard."
-    # )
-    # @app_commands.choices(
-    #     board_type=LEADERBOARD_TYPE_CHOICES,
-    #     game_type=GAME_TYPE_CHOICES,
-    #     platform=PLATFORM_CHOICES
-    # )
-    # async def leaderboard(
-    #     self,
-    #     interaction: discord.Interaction,
-    #     board_type: app_commands.Choice[str] = None,
-    #     game_type: app_commands.Choice[str] = None,
-    #     platform: app_commands.Choice[str] = None,
-    #     page: int = 1
-    # ):
-    #     await interaction.response.defer()
-
-    #     type_value = board_type.value if board_type else "LIFETIME"
-    #     game_type_value = game_type.value if game_type else "OVERALL"
-    #     platform_value = platform.value if platform else "PS3"
-
-    #     url = (
-    #         f"{URL}/leaderboards/view.xml"
-    #         f"?type={type_value}&game_type={game_type_value}"
-    #         f"&platform={platform_value}&page={page}&per_page=10"
-    #     )
-
-    #     if DEBUG_MODE:
-    #         print(f"[DEBUG] Fetching leaderboard: {url}")
-
-    #     async with aiohttp.ClientSession() as session:
-    #         async with session.get(url) as resp:
-    #             if resp.status != 200:
-    #                 await interaction.followup.send("Failed to fetch leaderboard data.")
-    #                 return
-    #             data = await resp.text()
-
-    #     try:
-    #         root = ET.fromstring(data)
-    #     except ET.ParseError as e:
-    #         await interaction.followup.send(f"XML Parse Error: {e}")
-    #         return
-
-    #     leaderboard_elem = root.find(".//leaderboard")
-    #     if leaderboard_elem is None:
-    #         await interaction.followup.send("No leaderboard data found.")
-    #         return
-
-    #     match game_type_value:
-
-    #         case _:
-    #             await interaction.followup.send("Nothing implemented yet.")
 
     @app_commands.command(
         name="hotlap",
@@ -166,8 +54,7 @@ class Leaderboard(commands.Cog):
             f"?type=LIFETIME&game_type=ONLINE_HOT_SEAT_RACE"
             f"&platform=PS3&page=1&per_page=100")
 
-        if DEBUG_MODE:
-            print(f"[DEBUG] Fetching hotlap leaderboard: {url}")
+        debug(f"Fetching hotlap leaderboard: {url}")
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -238,7 +125,7 @@ class Leaderboard(commands.Cog):
 
         top_players_sorted = sorted(top_players, key=lap_key)[:10]
         track_idx = top_players_sorted[0]["track_idx"]
-        track_info = await self.get_track_info(track_idx)
+        track_info = await self.creation_fetcher.get_track_info(track_idx)
 
         embed = discord.Embed(
             title="Hot Lap Leaderboard",
@@ -253,7 +140,7 @@ class Leaderboard(commands.Cog):
             embed.set_thumbnail(url=track_info["thumbnail"])
 
         for i, player in enumerate(top_players_sorted, 1):
-            formatted_time = self.format_time(player["best_lap"])
+            formatted_time = format_time(player["best_lap"])
             embed.add_field(
                 name=f"#{i} {player['username']}",
                 value=f"**{formatted_time}**",
@@ -262,6 +149,27 @@ class Leaderboard(commands.Cog):
 
         embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
         await interaction.followup.send(embed=embed)
+
+    # TODO: Implement full leaderboard command with all options
+    # @app_commands.command(
+    #     name="leaderboard",
+    #     description="Shows the top players or creators on the leaderboard."
+    # )
+    # @app_commands.choices(
+    #     board_type=LEADERBOARD_TYPE_CHOICES,
+    #     game_type=GAME_TYPE_CHOICES,
+    #     platform=PLATFORM_CHOICES
+    # )
+    # async def leaderboard(
+    #     self,
+    #     interaction: discord.Interaction,
+    #     board_type: app_commands.Choice[str] = None,
+    #     game_type: app_commands.Choice[str] = None,
+    #     platform: app_commands.Choice[str] = None,
+    #     page: int = 1
+    # ):
+    #     # Implementation here
+    #     pass
 
 
 async def setup(bot):

@@ -2,193 +2,48 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import aiohttp
-import xml.etree.ElementTree as ET
 import os
-from datetime import datetime
-from config import EMBED_COLOR, URL, DEBUG_MODE
-from config import FULL, HALF, EMPTY
-from config import SHOW_WIN_RATE
+from config import EMBED_COLOR, URL, DEBUG_MODE, FULL, HALF, EMPTY, SHOW_WIN_RATE
+from utils import (
+    debug, presence_lookup, rating_to_stars, to_discord_timestamp,
+    PlayerDataFetcher, XMLFetcher, create_basic_embed, add_player_fields_to_embed
+)
 
-
-def presence_lookup(presence: str) -> str:
-        match presence:
-            case "OFFLINE":
-                return "Offline"
-            case "ONLINE":
-                return "Online"
-            case "INGAME":
-                return "In Game"
-            case "LOBBY":
-                return "Lobby"
-            case "WEB":
-                return "Web"
-            case "CAREER_CHALLENGE":
-                return "Career Challenge"
-            case "CASUAL_RACE":
-                return "Casual Race"
-            case "IDLING":
-                return "Idling"
-            case "IN_POD":
-                return "In Pod"
-            case "IN_STUDIO":
-                return "Creation Station"
-            case "KART_PARK_CHALLENGE":
-                return "Kart Park Challenge" # what is this
-            case "RANKED_RACE":
-                return "XP Race"
-            case "ROAMING":
-                return "Roaming"
-            case _:
-                return presence
-
-def rating_to_stars(rating: float) -> str:
-    try:
-        rating = float(rating)
-    except:
-        return str(rating)
-    
-    rating = max(0.0, min(5.0, rating))
-
-    full = int(rating)
-    half = 1 if (rating - full) >= 0.5 else 0
-    empty = 5 - full - half
-
-    return f"{FULL * full}{HALF * half}{EMPTY * empty}"
-
-def debug(msg: str):
-    if DEBUG_MODE:
-        print(f"[DEBUG] {msg}")
 
 class Players(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.session = aiohttp.ClientSession()
+        self.player_fetcher = PlayerDataFetcher(self.session, URL)
+        self.xml_fetcher = XMLFetcher(self.session)
 
     async def cog_unload(self):
         await self.session.close()
 
-    @staticmethod
-    def to_discord_timestamp(iso_date: str) -> str:
-        dt = datetime.fromisoformat(iso_date)
-        return f"<t:{int(dt.timestamp())}:F>"
-
-    async def fetch_xml(self, url: str) -> ET.Element | None:
-        debug(f"GET XML: {url}")
-        try:
-            async with self.session.get(url) as resp:
-                if resp.status != 200:
-                    debug(f"HTTP {resp.status} while fetching XML")
-                    return None
-                text = await resp.text()
-        except Exception as e:
-            debug(f"Request error: {e}")
-            return None
-
-        try:
-            return ET.fromstring(text)
-        except ET.ParseError as e:
-            debug(f"XML parse error: {e}")
-            return None
-
     async def fetch_bytes(self, url: str) -> bytes | None:
-        debug(f"GET BYTES: {url}")
-        try:
-            async with self.session.get(url) as resp:
-                if resp.status != 200:
-                    debug(f"HTTP {resp.status} while fetching bytes")
-                    return None
-                return await resp.read()
-        except Exception as e:
-            debug(f"Error loading bytes: {e}")
-            return None
-
-    async def get_player_id(self, username: str) -> str | None:
-        url = f"{URL}/players/to_id.xml?username={username}"
-        root = await self.fetch_xml(url)
-        if root is None:
-            return None
-
-        node = root.find(".//player_id")
-        if node is not None:
-            debug(f"Found player ID: {node.text}")
-            return node.text
-
-        debug("player_id not found")
-        return None
-
-    async def get_player_info(self, player_id: str) -> dict | None:
-        url = f"{URL}/players/{player_id}/info.xml"
-        root = await self.fetch_xml(url)
-        if root is None:
-            return None
-
-        player = root.find(".//player")
-        if player is not None:
-            debug(f"Player info: {player.attrib}")
-            return player.attrib
-
-        debug("player element not found")
-        return None
-
-    async def get_player_avatar(self, player_id: str, primary: bool = False) -> str | None:
-        file = "primary.png" if primary else "secondary.png"
-        url = f"{URL}/player_avatars/MNR/{player_id}/{file}"
-
-        debug(f"Avatar URL: {url}")
-
-        async with self.session.get(url) as resp:
-            if resp.status == 200:
-                return str(resp.url)
-
-        debug("Avatar not found")
-        return None
+        return await self.xml_fetcher.fetch_bytes(url)
 
     @app_commands.command(name="player", description="Shows information about a player.")
     @app_commands.describe(username="The username of the player you want to view.")
     async def players(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer()
 
-        player_id = await self.get_player_id(username)
+        player_id = await self.player_fetcher.get_player_id(username)
         if not player_id:
             return await interaction.followup.send(f"Could not find player `{username}`.")
 
-        info = await self.get_player_info(player_id)
+        info = await self.player_fetcher.get_player_info(player_id)
         if not info:
             return await interaction.followup.send(f"Could not fetch data for player ID `{player_id}`.")
 
-        avatar_url = await self.get_player_avatar(player_id)
+        avatar_url = await self.player_fetcher.get_player_avatar(player_id)
         skill_level = info.get("skill_level_id")
         skill_img_path = f"img/levels/{skill_level}.PNG"
 
-        creation_timestamp = self.to_discord_timestamp(info["created_at"])
-
-        embed = discord.Embed(
-            title=info.get("username", username),
-            description=info.get("quote", "No description."),
-            color=EMBED_COLOR
-        )
-
-        # temporary fix lol
-        online_races = int(info.get("online_finished")) + int(info.get("online_forfeit")) + int(info.get("online_disconnected"))
-        online_wins = int(info.get("online_wins"))
-        win_rate = (online_wins / online_races) * 100 if online_races > 0 else 0
+        embed = create_basic_embed(info.get("username", username), EMBED_COLOR)
+        embed.description = info.get("quote", "No description.")
         
-        embed.add_field(name="Rating", value=rating_to_stars(info.get("star_rating")), inline=False)
-        
-        embed.add_field(name="Online Races", value=online_races, inline=True)
-        embed.add_field(name="Online Wins", value=online_wins, inline=True)
-        
-        if SHOW_WIN_RATE:
-            embed.add_field(name="Win Rate", value=f"{win_rate:.2f}%", inline=True)
-            
-        embed.add_field(name="Longest Drift", value=info.get("longest_drift"), inline=True)
-        embed.add_field(name="Longest Air Time", value=info.get("longest_hang_time"), inline=True)
-        embed.add_field(name="Longest Win Streak", value=info.get("longest_win_streak"), inline=True)
-
-        presence = presence_lookup(info.get("presence"))
-        embed.add_field(name="Presence", value=presence, inline=False)
-
-        embed.add_field(name="Created At", value=creation_timestamp, inline=False)
+        add_player_fields_to_embed(embed, info, SHOW_WIN_RATE, FULL, HALF, EMPTY)
 
         files = []
 
