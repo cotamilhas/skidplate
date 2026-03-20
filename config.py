@@ -17,6 +17,8 @@ URL = os.getenv("API_URL", "http://example.com:10050")
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
 # Star Emojis
+USE_EMOJIS = os.getenv("USE_EMOJIS", "true").lower() == "true"
+
 FULL = os.getenv("FULL_EMOJI", "<:full:1234567891234567890>")
 HALF = os.getenv("HALF_EMOJI", "<:half:1234567891234567890>")
 EMPTY = os.getenv("EMPTY_EMOJI", "<:empty:1234567891234567890>")

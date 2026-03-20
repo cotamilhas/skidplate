@@ -49,6 +49,11 @@ def rating_to_stars(rating: Union[str, float], full_emoji: str, half_emoji: str,
     except (ValueError, TypeError):
         return str(rating)
     
+    from config import USE_EMOJIS
+    
+    if not USE_EMOJIS:
+        return f"{rating:.1f}"
+    
     rating = max(0.0, min(5.0, rating))
 
     full = int(rating)
