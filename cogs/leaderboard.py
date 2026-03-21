@@ -50,7 +50,7 @@ class Leaderboard(commands.Cog):
     async def hotlap(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
-        url = (f"{URL}/leaderboards/view.xml"
+        url = (f"{URL}leaderboards/view.xml"
             f"?type=LIFETIME&game_type=ONLINE_HOT_SEAT_RACE"
             f"&platform=PS3&page=1&per_page=100")
 
@@ -78,7 +78,7 @@ class Leaderboard(commands.Cog):
         page_num = 1
         
         while True:
-            url_page = (f"{URL}/leaderboards/view.xml"
+            url_page = (f"{URL}leaderboards/view.xml"
                     f"?type=LIFETIME&game_type=ONLINE_HOT_SEAT_RACE"
                     f"&platform=PS3&page={page_num}&per_page=100")
 

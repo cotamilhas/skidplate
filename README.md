@@ -42,7 +42,7 @@ Create a `.env` file in the root directory with the following variables:
 ```bash
 DISCORD_TOKEN=your_discord_bot_token_here
 COMMAND_PREFIX=!
-API_URL=http://your-plgarage-instance:10050
+API_URL=http://your-plgarage-instance:10050/
 DEBUG_MODE=false
 SHOW_WIN_RATE=false
 USE_EMOJIS=false

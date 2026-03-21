@@ -20,9 +20,9 @@ class Stats(commands.Cog):
         await interaction.response.defer()
 
         urls = {
-            "Mods": f"{URL}/player_creations.xml?page=1&per_page=0&player_creation_type=CHARACTER&platform=PS3",
-            "Karts": f"{URL}/player_creations.xml?page=1&per_page=0&player_creation_type=KART&platform=PS3",
-            "Tracks": f"{URL}/player_creations.xml?page=1&per_page=0&player_creation_type=TRACK&platform=PS3"
+            "Mods": f"{URL}player_creations.xml?page=1&per_page=0&player_creation_type=CHARACTER&platform=PS3",
+            "Karts": f"{URL}player_creations.xml?page=1&per_page=0&player_creation_type=KART&platform=PS3",
+            "Tracks": f"{URL}player_creations.xml?page=1&per_page=0&player_creation_type=TRACK&platform=PS3"
         }
 
         stats = {}

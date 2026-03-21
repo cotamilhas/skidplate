@@ -135,7 +135,7 @@ class PlayerDataFetcher:
         self.xml_fetcher = XMLFetcher(session)
 
     async def get_player_id(self, username: str) -> Optional[str]:
-        url = f"{self.base_url}/players/to_id.xml?username={username}"
+        url = f"{self.base_url}players/to_id.xml?username={username}"
         root = await self.xml_fetcher.fetch_xml(url)
         if root is None:
             return None
@@ -149,7 +149,7 @@ class PlayerDataFetcher:
         return None
 
     async def get_player_info(self, player_id: str) -> Optional[Dict[str, str]]:
-        url = f"{self.base_url}/players/{player_id}/info.xml"
+        url = f"{self.base_url}players/{player_id}/info.xml"
         root = await self.xml_fetcher.fetch_xml(url)
         if root is None:
             return None
@@ -164,7 +164,7 @@ class PlayerDataFetcher:
 
     async def get_player_avatar(self, player_id: str, primary: bool = False) -> Optional[str]:
         file = "primary.png" if primary else "secondary.png"
-        url = f"{self.base_url}/player_avatars/MNR/{player_id}/{file}"
+        url = f"{self.base_url}player_avatars/MNR/{player_id}/{file}"
 
         debug(f"Avatar URL: {url}")
 
@@ -191,7 +191,7 @@ class CreationDataFetcher:
         platform: str = "PS3",
     ) -> Optional[List[Dict[str, Any]]]:
         url = (
-            f"{self.base_url}/player_creations.xml"
+            f"{self.base_url}player_creations.xml"
             f"?page={page}&per_page={per_page}"
             f"&sort_column={sort_column}"
             f"&player_creation_type={player_creation_type}"
@@ -218,7 +218,7 @@ class CreationDataFetcher:
                 rating = elem.attrib.get("star_rating", "N/A")
                 downloads = elem.attrib.get("downloads", "0")
                 description = elem.attrib.get("description", "")
-                thumbnail = f"{self.base_url}/player_creations/{cid}/preview_image.png" if cid else None
+                thumbnail = f"{self.base_url}player_creations/{cid}/preview_image.png" if cid else None
 
                 creations.append({
                     "id": cid,
@@ -238,7 +238,7 @@ class CreationDataFetcher:
         return creations
 
     async def get_track_info(self, track_idx: int) -> Optional[Dict[str, Any]]:
-        track_url = f"{self.base_url}/player_creations/{track_idx}.xml"
+        track_url = f"{self.base_url}player_creations/{track_idx}.xml"
         root = await self.xml_fetcher.fetch_xml(track_url)
         if root is None:
             return None
@@ -251,7 +251,7 @@ class CreationDataFetcher:
         creator = track_elem.attrib.get("username", "Unknown Creator")
         track_id = track_elem.attrib.get("id")
 
-        thumbnail_url = f"{self.base_url}/player_creations/{track_id}/preview_image.png"
+        thumbnail_url = f"{self.base_url}player_creations/{track_id}/preview_image.png"
 
         return {
             "name": track_name,
@@ -295,7 +295,7 @@ async def fetch_total_creations(session: aiohttp.ClientSession, name: str, url: 
 
 
 async def fetch_online_players(session: aiohttp.ClientSession, base_url: str) -> str:
-    url = f"{base_url}/api/playercounts/sessioncount"
+    url = f"{base_url}api/playercounts/sessioncount"
     debug(f"GET Online Players: {url}")
 
     try:
