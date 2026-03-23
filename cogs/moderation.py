@@ -223,7 +223,8 @@ class Moderation(commands.Cog):
                 "ManageModerators": False,
                 "ManageAnnouncements": False,
                 "ManageHotlap": False,
-                "ManageSystemEvents": False
+                "ManageSystemEvents": False,
+                "ChangeUserQuota": False
             }
             
             data, error = await self.api_request("POST", "/moderators", user_id,
@@ -277,7 +278,8 @@ class Moderation(commands.Cog):
                 "ManageSystemEvents": "Manage System Events",
                 "ViewGriefReports": "View Grief Reports",
                 "ViewPlayerComplaints": "View Player Complaints",
-                "ViewPlayerCreationComplaints": "View Creation Complaints"
+                "ViewPlayerCreationComplaints": "View Creation Complaints",
+                "ChangeUserQuota": "Change User Quota"
             }
             
             for key, label in perms.items():
@@ -441,6 +443,53 @@ class Moderation(commands.Cog):
                             color=discord.Color.green())
         await interaction.followup.send(embed=embed, ephemeral=True)
         
+    @app_commands.command(name="set_user_quota", description="Change a player's creation quota")
+    @app_commands.describe(username="Player username", quota="New quota (integer >= 0)")
+    @has_moderator_role()
+    async def set_user_quota(self, interaction: discord.Interaction, username: str, quota: int):
+        debug(f"set_user_quota called by {interaction.user} for {username} -> quota={quota}")
+        await interaction.response.defer(ephemeral=True)
+
+        if quota < 0:
+            embed = discord.Embed(
+                title="Error",
+                description="Quota must be an integer greater than or equal to 0.",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        user_id = interaction.user.id
+
+        player_id = await self.player_fetcher.get_player_id(username)
+        if player_id is None:
+            embed = discord.Embed(
+                title="Error",
+                description=f"Player '{username}' was not found.",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        data, error = await self.api_request(
+            "POST",
+            "/setUserQuota",
+            user_id,
+            params={"id": player_id, "quota": quota}
+        )
+
+        if error:
+            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="Success",
+            description=f"Quota for **{username}** (ID `{player_id}`) changed to **{quota}**.",
+            color=discord.Color.green()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
     # ===== PLAYER CREATION MANAGEMENT =====
     @app_commands.command(name="ban_creation", description="Ban or approve a creation")
     @app_commands.describe(creation_id="Creation ID", banned="True to ban, False to approve")
@@ -552,7 +601,8 @@ class Moderation(commands.Cog):
                 "ManageModerators": "Manage Moderators",
                 "ManageAnnouncements": "Manage Announcements",
                 "ManageHotlap": "Manage Hotlap",
-                "ManageSystemEvents": "Manage System Events"
+                "ManageSystemEvents": "Manage System Events",
+                "ChangeUserQuota": "Change User Quota"
             }
             
             for key, label in permissions.items():
@@ -583,7 +633,8 @@ class Moderation(commands.Cog):
         manage_moderators="Can manage moderators",
         manage_announcements="Can manage announcements",
         manage_hotlap="Can manage hotlap",
-        manage_system_events="Can manage system events"
+        manage_system_events="Can manage system events",
+        change_user_quota="Can change user quota"
     )
     @has_moderator_role()
     async def mod_set_permissions(
@@ -599,7 +650,8 @@ class Moderation(commands.Cog):
         manage_moderators: bool = False,
         manage_announcements: bool = False,
         manage_hotlap: bool = False,
-        manage_system_events: bool = False
+        manage_system_events: bool = False,
+        change_user_quota: bool = False
     ):
         debug(f"mod_set_permissions called by {interaction.user} for moderator {username}")
         await interaction.response.defer(ephemeral=True)
@@ -635,7 +687,8 @@ class Moderation(commands.Cog):
             "ManageModerators": str(manage_moderators).lower(),
             "ManageAnnouncements": str(manage_announcements).lower(),
             "ManageHotlap": str(manage_hotlap).lower(),
-            "ManageSystemEvents": str(manage_system_events).lower()
+            "ManageSystemEvents": str(manage_system_events).lower(),
+            "ChangeUserQuota": str(change_user_quota).lower()
         }
 
         data, error = await self.api_request(
