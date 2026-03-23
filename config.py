@@ -16,6 +16,9 @@ URL = os.getenv("API_URL", "http://example.com:10050")
 # Debug Mode
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
+# Moderator Role ID
+MODERATOR_ROLE_ID = int(os.getenv("MODERATOR_ROLE_ID", "0"))
+
 # Star Emojis
 USE_EMOJIS = os.getenv("USE_EMOJIS", "true").lower() == "true"
 

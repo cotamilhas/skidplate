@@ -262,3 +262,6 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/python,venv,dotenv,linux,windows,macos
+
+# Specific ignores api logs
+api_logs/*

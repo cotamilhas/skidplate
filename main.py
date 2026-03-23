@@ -142,6 +142,8 @@ async def on_interaction(interaction: discord.Interaction):
 async def on_ready():
     await bot.tree.sync()
     print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
+    api_url = os.getenv("API_URL", "http://example.com:10050")
+    print(f"Connecting to: {api_url}")
 
 if __name__ == "__main__":
     async def main():
