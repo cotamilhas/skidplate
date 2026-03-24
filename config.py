@@ -28,3 +28,4 @@ EMPTY = os.getenv("EMPTY_EMOJI", "<:empty:1234567891234567890>")
 
 # Player Settings
 SHOW_WIN_RATE = os.getenv("SHOW_WIN_RATE", "false").lower() == "true"
+MAX_QUOTA = int(os.getenv("MAX_QUOTA", "1000"))

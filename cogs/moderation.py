@@ -6,7 +6,7 @@ from typing import Optional
 import json
 import os
 from datetime import datetime
-from config import EMBED_COLOR, URL, DEBUG_MODE, MODERATOR_ROLE_ID
+from config import EMBED_COLOR, URL, DEBUG_MODE, MODERATOR_ROLE_ID, MAX_QUOTA
 from utils import debug, PlayerDataFetcher
 
 
@@ -326,61 +326,6 @@ class Moderation(commands.Cog):
         embed = discord.Embed(title="Success", description="Password changed successfully", color=discord.Color.green())
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # ===== PLAYER CREATIONS =====
-    @app_commands.command(name="player_creations", description="List player creations for moderation")
-    @app_commands.describe(page="Page (default: 1)", per_page="Per page (default: 10)", status="Status filter")
-    @has_moderator_role()
-    async def player_creations(self, interaction: discord.Interaction, page: int = 1, per_page: int = 10, status: str = "Pending"):
-        debug(f"player_creations called by {interaction.user} with status: {status}")
-        await interaction.response.defer()
-        
-        user_id = interaction.user.id
-        data, error = await self.api_request("GET", "/player_creations", user_id,
-                                            params={"page": page, "per_page": per_page, "status": status})
-        
-        if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed)
-            return
-        
-        embed = discord.Embed(title=f"Player Creations - {status} (Page {page})", color=EMBED_COLOR)
-        
-        if isinstance(data, dict) and "Page" in data:
-            creations = data.get("Page", [])
-            total = data.get("Total", len(creations))
-            embed.set_footer(text=f"Total: {total}")
-            
-            if creations:
-                for creation in creations:
-                    cid = creation.get("ID", "?")
-                    name = creation.get("Name", "Unknown")
-                    embed.add_field(name=f"Creation #{cid}", value=f"**{name}**", inline=False)
-        else:
-            embed.description = "No creations found"
-        
-        await interaction.followup.send(embed=embed)
-
-    @app_commands.command(name="set_creation_status", description="Set creation moderation status")
-    @app_commands.describe(creation_id="Creation ID", status="New status (e.g., Approved, Rejected, Pending)")
-    @has_moderator_role()
-    async def set_creation_status(self, interaction: discord.Interaction, creation_id: int, status: str):
-        debug(f"set_creation_status called by {interaction.user} for creation {creation_id}")
-        await interaction.response.defer(ephemeral=True)
-        
-        user_id = interaction.user.id
-        data, error = await self.api_request("POST", "/setStatus", user_id,
-                                            params={"id": creation_id, "status": status})
-        
-        if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-        
-        embed = discord.Embed(title="Success", 
-                            description=f"Creation #{creation_id} status set to **{status}**", 
-                            color=discord.Color.green())
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
     # ===== USER MANAGEMENT =====
     @app_commands.command(name="ban_user", description="Ban or unban user")
     @app_commands.describe(username="Player username", ban="True to ban, False to unban")
@@ -444,16 +389,16 @@ class Moderation(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
         
     @app_commands.command(name="set_user_quota", description="Change a player's creation quota")
-    @app_commands.describe(username="Player username", quota="New quota (integer >= 0)")
+    @app_commands.describe(username="Player username", quota="New quota (integer between 0 and 2147483647)")
     @has_moderator_role()
     async def set_user_quota(self, interaction: discord.Interaction, username: str, quota: int):
         debug(f"set_user_quota called by {interaction.user} for {username} -> quota={quota}")
         await interaction.response.defer(ephemeral=True)
 
-        if quota < 0:
+        if quota < 0 or quota > MAX_QUOTA:
             embed = discord.Embed(
                 title="Error",
-                description="Quota must be an integer greater than or equal to 0.",
+                description=f"Quota must be an integer between 0 and {MAX_QUOTA}.",
                 color=discord.Color.red()
             )
             await interaction.followup.send(embed=embed, ephemeral=True)

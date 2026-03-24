@@ -46,6 +46,7 @@ API_URL=http://your-plgarage-instance:10050/
 DEBUG_MODE=false
 MODERATOR_ROLE_ID=1234567890123456789
 SHOW_WIN_RATE=false
+MAX_QUOTA=1000
 USE_EMOJIS=false
 FULL_EMOJI=<:full:1234567891234567890>
 HALF_EMOJI=<:half:1234567891234567890>
@@ -59,6 +60,7 @@ Replace the placeholder values with your actual configuration:
 - `DEBUG_MODE`: Set to true to enable detailed logging (default: false)
 - `MODERATOR_ROLE_ID`: Discord role ID for users with moderator permissions
 - `SHOW_WIN_RATE`: Set to true to display win rate statistics (default: false)
+- `MAX_QUOTA`: Maximum number of slots/quota allowed given by the bot (default: 1000)
 - `USE_EMOJIS`: Set to true to enable emoji-based visuals in bot responses (ratings, stats, and embeds). Requires custom emojis to be configured below. (default: false)
 - `FULL_EMOJI`, `HALF_EMOJI`, `EMPTY_EMOJI`: Custom emoji IDs for ratings (optional)
 
