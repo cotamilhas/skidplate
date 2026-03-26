@@ -3,11 +3,12 @@ from discord.ext import commands
 from discord import app_commands
 import aiohttp
 import os
-from config import EMBED_COLOR, URL, DEBUG_MODE, FULL, HALF, EMPTY, SHOW_WIN_RATE
+from config import EMBED_COLOR, URL, FULL, HALF, EMPTY, SHOW_WIN_RATE
 from utils import (
-    debug, presence_lookup, rating_to_stars, to_discord_timestamp,
-    PlayerDataFetcher, XMLFetcher, create_basic_embed, add_player_fields_to_embed
+    debug, PlayerDataFetcher, create_basic_embed
 )
+from clients import XMLFetcher
+from ui import add_player_fields_to_embed
 
 
 class Players(commands.Cog):

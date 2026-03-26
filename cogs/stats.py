@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import aiohttp
-from config import EMBED_COLOR, URL, DEBUG_MODE
+from config import EMBED_COLOR, URL
 from utils import debug, fetch_total_creations, fetch_online_players
 
 

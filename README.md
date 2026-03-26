@@ -12,6 +12,7 @@ This project is built on discord.py and uses Docker for containerized deployment
 
 - Retrieve player information from PLGarage instances
 - Access creation metadata and statistics
+- Includes moderation commands (role-gated) for managing users, creations, quotas, and moderator permissions
 - Configurable command prefix and responses
 - Extensible cog-based command system
 - Debug mode for development
@@ -153,11 +154,27 @@ skidplate/
 ├── main.py              Main bot entry point
 ├── config.py            Configuration management
 ├── utils.py             Utility functions
+├── clients/             API clients and helpers
+│   ├── __init__.py
+│   ├── moderation_api.py
+│   └── xml_client.py
+├── ui/                  Shared embed/UI builders
+│   ├── __init__.py
+│   ├── creation_embeds.py
+│   └── player_embeds.py
+├── cogs/                Discord command modules
+│   ├── creations.py
+│   ├── leaderboard.py
+│   ├── moderation.py
+│   ├── players.py
+│   └── stats.py
+├── img/                 Bot image assets
+├── api_logs/            Moderation API logs (when debug is enabled)
 ├── requirements.txt     Python dependencies
 ├── Dockerfile           Container configuration
 ├── docker-compose.yml   Compose configuration
-├── .env                 Environment variables (create this)
-└── cogs/                Discord command modules
+├── .env                 Environment variables 
+└── README.md            Project documentation
 ```
 
 ## Dependencies

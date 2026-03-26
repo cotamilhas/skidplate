@@ -6,6 +6,10 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 import os
 from typing import Optional, List, Dict, Any, Union
+import json
+from config import EMBED_COLOR, URL, DEBUG_MODE
+from clients.xml_client import XMLFetcher
+from clients.moderation_api import ModerationAPIHelper
 
 def debug(msg: str):
     from config import DEBUG_MODE
@@ -93,40 +97,6 @@ def format_time(time_str: str) -> str:
 def to_discord_timestamp(iso_date: str) -> str:
     dt = datetime.fromisoformat(iso_date)
     return f"<t:{int(dt.timestamp())}:F>"
-
-class XMLFetcher:
-    def __init__(self, session: aiohttp.ClientSession):
-        self.session = session
-
-    async def fetch_xml(self, url: str) -> Optional[ET.Element]:
-        debug(f"GET XML: {url}")
-        try:
-            async with self.session.get(url) as resp:
-                if resp.status != 200:
-                    debug(f"HTTP {resp.status} while fetching XML")
-                    return None
-                text = await resp.text()
-        except Exception as e:
-            debug(f"Request error: {e}")
-            return None
-
-        try:
-            return ET.fromstring(text)
-        except ET.ParseError as e:
-            debug(f"XML parse error: {e}")
-            return None
-
-    async def fetch_bytes(self, url: str) -> Optional[bytes]:
-        debug(f"GET BYTES: {url}")
-        try:
-            async with self.session.get(url) as resp:
-                if resp.status != 200:
-                    debug(f"HTTP {resp.status} while fetching bytes")
-                    return None
-                return await resp.read()
-        except Exception as e:
-            debug(f"Error loading bytes: {e}")
-            return None
 
 class PlayerDataFetcher:    
     def __init__(self, session: aiohttp.ClientSession, base_url: str):
@@ -237,6 +207,18 @@ class CreationDataFetcher:
 
         return creations
 
+    async def get_creation_info(self, creation_id: int) -> Optional[Dict[str, str]]:
+        creation_url = f"{self.base_url}player_creations/{creation_id}.xml"
+        root = await self.xml_fetcher.fetch_xml(creation_url)
+        if root is None:
+            return None
+
+        creation_elem = root.find(".//player_creation")
+        if creation_elem is None:
+            return {}
+
+        return creation_elem.attrib
+
     async def get_track_info(self, track_idx: int) -> Optional[Dict[str, Any]]:
         track_url = f"{self.base_url}player_creations/{track_idx}.xml"
         root = await self.xml_fetcher.fetch_xml(track_url)
@@ -257,6 +239,65 @@ class CreationDataFetcher:
             "name": track_name,
             "creator": creator,
             "thumbnail": thumbnail_url
+        }
+
+    async def search_creations(
+        self,
+        search_query: str,
+        player_creation_type: str = "CHARACTER",
+        per_page: int = 10,
+        page: int = 1,
+        platform: str = "PS3",
+    ) -> Optional[Dict[str, Any]]:
+        url = (
+            f"{self.base_url}player_creations/search.xml"
+            f"?page={page}&per_page={per_page}"
+            f"&platform={platform}"
+            f"&player_creation_type={player_creation_type}"
+            f"&search={search_query}"
+        )
+
+        root = await self.xml_fetcher.fetch_xml(url)
+        if root is None:
+            return None
+
+        pc_root = root.find(".//player_creations")
+        if pc_root is None:
+            debug("player_creations element not found")
+            return None
+
+        creations = []
+        for elem in pc_root.findall("player_creation"):
+            try:
+                cid = elem.attrib.get("id")
+                name = elem.attrib.get("name", "Unknown")
+                username = elem.attrib.get("username", "Unknown")
+                rating = elem.attrib.get("star_rating", "N/A")
+                downloads = elem.attrib.get("downloads", "0")
+                views = elem.attrib.get("views", "0")
+                points = elem.attrib.get("points", "0")
+                creation_type = elem.attrib.get("player_creation_type", "Unknown")
+
+                creations.append({
+                    "id": cid,
+                    "name": name,
+                    "username": username,
+                    "star_rating": rating,
+                    "downloads": downloads,
+                    "views": views,
+                    "points": points,
+                    "player_creation_type": creation_type
+                })
+            except Exception as e:
+                debug(f"Error parsing player_creation element: {e}")
+                continue
+
+        return {
+            "creations": creations,
+            "page": int(pc_root.get("page", 1)),
+            "per_page": int(pc_root.get("row_end", per_page)) - int(pc_root.get("row_start", 0)),
+            "total": int(pc_root.get("total", 0)),
+            "total_pages": int(pc_root.get("total_pages", 1))
         }
 
 async def fetch_total_creations(session: aiohttp.ClientSession, name: str, url: str) -> str:
@@ -321,28 +362,3 @@ async def fetch_online_players(session: aiohttp.ClientSession, base_url: str) ->
 
 def create_basic_embed(title: str, color: discord.Color) -> discord.Embed:
     return discord.Embed(title=title, color=color)
-
-def add_player_fields_to_embed(embed: discord.Embed, info: Dict[str, str], show_win_rate: bool, full_emoji: str, half_emoji: str, empty_emoji: str):
-    rating_stars = rating_to_stars(info.get("star_rating", "0"), full_emoji, half_emoji, empty_emoji)
-    
-    online_races = int(info.get("online_finished", "0")) + int(info.get("online_forfeit", "0")) + int(info.get("online_disconnected", "0"))
-    online_wins = int(info.get("online_wins", "0"))
-    win_rate = (online_wins / online_races) * 100 if online_races > 0 else 0
-    
-    embed.add_field(name="Rating", value=rating_stars, inline=False)
-    
-    embed.add_field(name="Online Races", value=online_races, inline=True)
-    embed.add_field(name="Online Wins", value=online_wins, inline=True)
-    
-    if show_win_rate:
-        embed.add_field(name="Win Rate", value=f"{win_rate:.2f}%", inline=False)
-        
-    embed.add_field(name="Longest Drift", value=info.get("longest_drift", "0"), inline=True)
-    embed.add_field(name="Longest Air Time", value=info.get("longest_hang_time", "0"), inline=True)
-    embed.add_field(name="Longest Win Streak", value=info.get("longest_win_streak", "0"), inline=True)
-
-    presence = presence_lookup(info.get("presence", "OFFLINE"))
-    embed.add_field(name="Presence", value=presence, inline=False)
-
-    if info.get("created_at"):
-        embed.add_field(name="Created At", value=to_discord_timestamp(info["created_at"]), inline=False)

@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import aiohttp
 import xml.etree.ElementTree as ET
-from config import EMBED_COLOR, URL, DEBUG_MODE
+from config import EMBED_COLOR, URL
 from utils import debug, format_time, CreationDataFetcher
 
 

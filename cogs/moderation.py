@@ -8,6 +8,7 @@ import os
 from datetime import datetime
 from config import EMBED_COLOR, URL, DEBUG_MODE, MODERATOR_ROLE_ID, MAX_QUOTA
 from utils import debug, PlayerDataFetcher
+from clients import ModerationAPIHelper
 
 
 def has_moderator_role():
@@ -53,99 +54,24 @@ class Moderation(commands.Cog):
         if not os.path.exists(self.logs_dir):
             os.makedirs(self.logs_dir)
 
+        self.moderation_api = ModerationAPIHelper(
+            session=self.session,
+            api_base=self.api_base,
+            logs_dir=self.logs_dir,
+            user_tokens=self.user_tokens
+        )
+
     async def cog_unload(self):
         await self.session.close()
 
-    # TODO: Move this to utils and use in all cogs that make API calls 
     def save_api_response(self, endpoint: str, method: str, response_data, status_code: int, error: Optional[str] = None):
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            filename = f"{self.logs_dir}/api_{timestamp}_{method}_{endpoint.replace('/', '_')}.json"
-            
-            log_data = {
-                "timestamp": datetime.now().isoformat(),
-                "endpoint": endpoint,
-                "method": method,
-                "status_code": status_code,
-                "response": response_data if not error else None,
-                "error": error if error else None,
-                "url": f"{self.api_base}api/moderation{endpoint}"
-            }
-            
-            if isinstance(response_data, str) and not error:
-                try:
-                    log_data["response_parsed"] = json.loads(response_data)
-                except:
-                    log_data["response_raw"] = response_data
-            elif isinstance(response_data, (dict, list)):
-                log_data["response"] = response_data
-            
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(log_data, f, indent=2, ensure_ascii=False)
-            
-            debug(f"API response saved to: {filename}")
-        except Exception as e:
-            debug(f"Failed to save API response log: {str(e)}")
+        self.moderation_api.save_api_response(endpoint, method, response_data, status_code, error)
 
     async def get_auth_headers(self, user_id: int) -> dict:
-        token = self.user_tokens.get(user_id)
-        if not token:
-            debug(f"No moderator token available for user {user_id}")
-            return {}
-        debug(f"Auth headers prepared for user {user_id} with token: {token[:10]}...")
-        return {"Authorization": f"Bearer {token}"}
+        return await self.moderation_api.get_auth_headers(user_id)
 
     async def api_request(self, method: str, endpoint: str, user_id: int, **kwargs):
-        url = f"{self.api_base}api/moderation{endpoint}"
-        headers = await self.get_auth_headers(user_id)
-        
-        debug(f"API Request: {method} {url} by user {user_id}")
-        
-        try:
-            async with self.session.request(method, url, headers=headers, **kwargs) as resp:
-                debug(f"API Response Status: {resp.status}")
-                debug(f"Response Content-Type: {resp.content_type}")
-                
-                if resp.status == 401:
-                    debug("Unauthorized (401)")
-                    if DEBUG_MODE:
-                        self.save_api_response(endpoint, method, None, resp.status, "Unauthorized. Please log in first.")
-                    return None, "Unauthorized. Please log in first."
-                if resp.status == 403:
-                    debug("Permission denied (403)")
-                    if DEBUG_MODE:
-                        self.save_api_response(endpoint, method, None, resp.status, "Permission denied. You do not have access to this action.")
-                    return None, "Permission denied. You do not have access to this action."
-                if resp.status == 404:
-                    debug("Resource not found (404)")
-                    if DEBUG_MODE:
-                        self.save_api_response(endpoint, method, None, resp.status, "Resource not found.")
-                    return None, "Resource not found."
-                if resp.status >= 400:
-                    debug(f"Error response: {resp.status}")
-                    if DEBUG_MODE:
-                        self.save_api_response(endpoint, method, None, resp.status, f"Error {resp.status}")
-                    return None, f"Error {resp.status}"
-                
-                text = await resp.text()
-                debug(f"Raw response text: {text[:200]}")
-                
-                try:
-                    data = json.loads(text)
-                    debug(f"Successfully parsed JSON response: {type(data)}")
-                    if DEBUG_MODE:
-                        self.save_api_response(endpoint, method, data, resp.status)
-                    return data, None
-                except json.JSONDecodeError:
-                    debug(f"JSON parsing failed, returning as text")
-                    if DEBUG_MODE:
-                        self.save_api_response(endpoint, method, text, resp.status)
-                    return text, None
-        except Exception as e:
-            debug(f"API Request exception: {str(e)}")
-            if DEBUG_MODE:
-                self.save_api_response(endpoint, method, None, 0, f"Connection error: {str(e)}")
-            return None, f"Connection error: {str(e)}"
+        return await self.moderation_api.api_request(method, endpoint, user_id, **kwargs)
 
     # ===== MODERATOR SELF MANAGEMENT =====
     @app_commands.command(name="mod_login", description="Connect as API moderator")
@@ -288,7 +214,7 @@ class Moderation(commands.Cog):
                 debug(f"Permission {key}: {has_perm}")
                 embed.add_field(name=label, value=status, inline=True)
         
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="mod_set_username", description="Change your moderator username")
     @app_commands.describe(username="New username")
@@ -357,39 +283,78 @@ class Moderation(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="set_user_settings", description="Modify user settings")
-    @app_commands.describe(username="Player username", show_no_previews="Show creations without previews", 
-                          allow_opposite_platform="Allow opposite platform")
+    @app_commands.describe(
+        username="Player username",
+        show_no_previews="Show creations without previews",
+        allow_opposite_platform="Allow opposite platform"
+    )
     @has_moderator_role()
-    async def set_user_settings(self, interaction: discord.Interaction, username: str, 
-                               show_no_previews: bool = False, allow_opposite_platform: bool = False):
+    async def set_user_settings(
+        self,
+        interaction: discord.Interaction,
+        username: str,
+        show_no_previews: Optional[bool] = None,
+        allow_opposite_platform: Optional[bool] = None
+    ):
         debug(f"set_user_settings called by {interaction.user} for {username}")
         await interaction.response.defer(ephemeral=True)
-        
+
         user_id = interaction.user.id
         player_id = await self.player_fetcher.get_player_id(username)
+
         if player_id is None:
-            embed = discord.Embed(title="Error", description=f"Player '{username}' not found", color=discord.Color.red())
+            embed = discord.Embed(
+                title="Error",
+                description=f"Player '{username}' not found",
+                color=discord.Color.red()
+            )
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
+
+        params = {
+            "id": player_id
+        }
         
-        data, error = await self.api_request("POST", "/setUserSettings", user_id,
-                                            params={
-                                                "id": player_id,
-                                                "ShowCreationsWithoutPreviews": str(show_no_previews).lower(),
-                                                "AllowOppositePlatform": str(allow_opposite_platform).lower()
-                                            })
-        
+        if not show_no_previews and not allow_opposite_platform:
+            embed = discord.Embed(
+                title="No Changes",
+                description="No settings were modified. Please specify at least one setting to change.",
+                color=discord.Color.yellow()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        if show_no_previews is not None:
+            params["ShowCreationsWithoutPreviews"] = str(show_no_previews).lower()
+
+        if allow_opposite_platform is not None:
+            params["AllowOppositePlatform"] = str(allow_opposite_platform).lower()
+
+        data, error = await self.api_request(
+            "POST",
+            "/setUserSettings",
+            user_id,
+            params=params
+        )
+
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
+            embed = discord.Embed(
+                title="Error",
+                description=error,
+                color=discord.Color.red()
+            )
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
-        
-        embed = discord.Embed(title="Success", description=f"Settings updated for **{username}**", 
-                            color=discord.Color.green())
+
+        embed = discord.Embed(
+            title="Success",
+            description=f"Settings updated for **{username}**",
+            color=discord.Color.green()
+        )
         await interaction.followup.send(embed=embed, ephemeral=True)
         
     @app_commands.command(name="set_user_quota", description="Change a player's creation quota")
-    @app_commands.describe(username="Player username", quota="New quota (integer between 0 and 2147483647)")
+    @app_commands.describe(username="Player username", quota=f"New quota (integer between 0 and {MAX_QUOTA})")
     @has_moderator_role()
     async def set_user_quota(self, interaction: discord.Interaction, username: str, quota: int):
         debug(f"set_user_quota called by {interaction.user} for {username} -> quota={quota}")
