@@ -3,8 +3,8 @@ from discord.ext import commands
 from discord import app_commands
 import aiohttp
 import xml.etree.ElementTree as ET
-from config import EMBED_COLOR, URL
-from utils import debug, format_time, CreationDataFetcher
+from config import EMBED_COLOR, URL, FULL, HALF, EMPTY
+from utils import debug, format_time, rating_to_stars, CreationDataFetcher
 
 
 class Leaderboard(commands.Cog):
@@ -127,6 +127,20 @@ class Leaderboard(commands.Cog):
         track_idx = top_players_sorted[0]["track_idx"]
         track_info = await self.creation_fetcher.get_track_info(track_idx)
 
+        track_rating_stars = "N/A"
+        if track_idx is not None:
+            try:
+                creation_info = await self.creation_fetcher.get_creation_info(int(track_idx))
+                if creation_info:
+                    track_rating_stars = rating_to_stars(
+                        creation_info.get("star_rating", "0"),
+                        FULL,
+                        HALF,
+                        EMPTY,
+                    )
+            except (ValueError, TypeError):
+                debug(f"Invalid track index for rating lookup: {track_idx}")
+
         embed = discord.Embed(
             title="Hot Lap Leaderboard",
             color=EMBED_COLOR
@@ -138,6 +152,8 @@ class Leaderboard(commands.Cog):
                 f"By *{track_info['creator']}*\n\n"
             )
             embed.set_thumbnail(url=track_info["thumbnail"])
+
+        embed.add_field(name="Rating", value=f"**{track_rating_stars}**", inline=False)
 
         for i, player in enumerate(top_players_sorted, 1):
             formatted_time = format_time(player["best_lap"])

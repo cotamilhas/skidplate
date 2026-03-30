@@ -114,7 +114,12 @@ async def on_interaction(interaction: discord.Interaction):
     if not DEBUG_MODE:
         return
 
+    BLACKLIST = {"mod_login"}
+    
     if interaction.type == discord.InteractionType.application_command:
+        if interaction.command.name in BLACKLIST:
+            return
+
         params = ""
         if hasattr(interaction, "data") and "options" in interaction.data:
             options = interaction.data["options"]

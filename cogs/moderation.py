@@ -6,8 +6,9 @@ from typing import Optional
 import json
 import os
 from datetime import datetime
+from io import BytesIO
 from config import EMBED_COLOR, URL, DEBUG_MODE, MODERATOR_ROLE_ID, MAX_QUOTA
-from utils import debug, PlayerDataFetcher
+from utils import debug, PlayerDataFetcher, CreationDataFetcher
 from clients import ModerationAPIHelper
 
 
@@ -49,6 +50,7 @@ class Moderation(commands.Cog):
         self.api_base = URL
         self.user_tokens: dict[int, str] = {}
         self.player_fetcher = PlayerDataFetcher(self.session, URL)
+        self.creation_fetcher = CreationDataFetcher(self.session, URL)
         
         self.logs_dir = "api_logs"
         if not os.path.exists(self.logs_dir):
@@ -252,19 +254,22 @@ class Moderation(commands.Cog):
         embed = discord.Embed(title="Success", description="Password changed successfully", color=discord.Color.green())
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # ===== USER MANAGEMENT =====
-    @app_commands.command(name="ban_user", description="Ban or unban user")
+    # ===== PLAYER MANAGEMENT =====
+    @app_commands.command(name="ban_player", description="Ban or unban player")
     @app_commands.describe(username="Player username", ban="True to ban, False to unban")
     @has_moderator_role()
-    async def ban_user(self, interaction: discord.Interaction, username: str, ban: bool):
-        debug(f"ban_user called by {interaction.user} - username: {username}, ban: {ban}")
+    async def ban_player(self, interaction: discord.Interaction, username: str, ban: bool):
+        debug(f"ban_player called by {interaction.user} - username: {username}, ban: {ban}")
         await interaction.response.defer(ephemeral=True)
+
+        async def send_error(message: str):
+            embed = discord.Embed(title="Error", description=message, color=discord.Color.red())
+            await interaction.followup.send(embed=embed, ephemeral=True)
         
         user_id = interaction.user.id
         player_id = await self.player_fetcher.get_player_id(username)
         if player_id is None:
-            embed = discord.Embed(title="Error", description=f"Player '{username}' not found", color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await send_error(f"Player '{username}' not found")
             return
         
         debug(f"Found player ID {player_id} for username {username}")
@@ -273,30 +278,42 @@ class Moderation(commands.Cog):
         data, error = await self.api_request("POST", "/setBan", user_id, params={"id": player_id, "isBanned": is_banned})
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await send_error(error)
             return
         
-        action = "banned" if ban else "unbanned"
-        embed = discord.Embed(title="Action Complete", description=f"Player **{username}** was **{action}**", 
-                            color=discord.Color.green())
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        avatar_url = await self.player_fetcher.get_player_avatar(player_id)
 
-    @app_commands.command(name="set_user_settings", description="Modify user settings")
+        embed = discord.Embed(
+            title="Player Banned" if ban else "Player Unbanned",
+            color=discord.Color.red() if ban else discord.Color.green()
+        )
+        embed.add_field(name="Username", value=f"**{username}**", inline=True)
+        embed.add_field(name="ID", value=f"`{player_id}`", inline=True)
+
+        if avatar_url:
+            embed.set_thumbnail(url=avatar_url)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        fallback = discord.File("img/secondary.png", filename="secondary.png")
+        embed.set_thumbnail(url="attachment://secondary.png")
+        await interaction.followup.send(embed=embed, file=fallback, ephemeral=True)
+
+    @app_commands.command(name="set_player_settings", description="Modify player settings (show no previews, allow opposite platform)")
     @app_commands.describe(
         username="Player username",
         show_no_previews="Show creations without previews",
-        allow_opposite_platform="Allow opposite platform"
+        allow_opposite_platform="Allow players to connect to the opposite platform (PSN/RPCN)"
     )
     @has_moderator_role()
-    async def set_user_settings(
+    async def set_player_settings(
         self,
         interaction: discord.Interaction,
         username: str,
         show_no_previews: Optional[bool] = None,
         allow_opposite_platform: Optional[bool] = None
     ):
-        debug(f"set_user_settings called by {interaction.user} for {username}")
+        debug(f"set_player_settings called by {interaction.user} for {username}")
         await interaction.response.defer(ephemeral=True)
 
         user_id = interaction.user.id
@@ -353,11 +370,11 @@ class Moderation(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
         
-    @app_commands.command(name="set_user_quota", description="Change a player's creation quota")
+    @app_commands.command(name="set_player_quota", description="Change a player's creation quota")
     @app_commands.describe(username="Player username", quota=f"New quota (integer between 0 and {MAX_QUOTA})")
     @has_moderator_role()
-    async def set_user_quota(self, interaction: discord.Interaction, username: str, quota: int):
-        debug(f"set_user_quota called by {interaction.user} for {username} -> quota={quota}")
+    async def set_player_quota(self, interaction: discord.Interaction, username: str, quota: int):
+        debug(f"set_player_quota called by {interaction.user} for {username} -> quota={quota}")
         await interaction.response.defer(ephemeral=True)
 
         if quota < 0 or quota > MAX_QUOTA:
@@ -418,8 +435,29 @@ class Moderation(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
         
+        creation_info = await self.creation_fetcher.get_creation_info(creation_id)
+        creation_name = creation_info.get("name", "Unknown") if creation_info else "Unknown"
+        
         debug(f"Creation {creation_id} status changed to {status}")
-        embed = discord.Embed(title="Status Updated", description=f"Creation ID `{creation_id}` → **{status}**", color=discord.Color.green())
+        embed = discord.Embed(
+            title="Creation Banned" if banned else "Creation Approved",
+            color=discord.Color.red() if banned else discord.Color.green()
+        )
+        embed.add_field(name="Name", value=f"**{creation_name}**", inline=True)
+        embed.add_field(name="ID", value=f"`{creation_id}`", inline=True)
+        
+        preview_url = f"{URL}player_creations/{creation_id}/preview_image.png"
+        try:
+            async with self.session.get(preview_url) as resp:
+                if resp.status == 200:
+                    preview_bytes = await resp.read()
+                    preview_file = discord.File(BytesIO(preview_bytes), filename="preview.png")
+                    embed.set_thumbnail(url="attachment://preview.png")
+                    await interaction.followup.send(embed=embed, file=preview_file, ephemeral=True)
+                    return
+        except Exception as e:
+            debug(f"Failed to fetch preview image: {e}")
+        
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ===== MODERATOR MANAGEMENT =====
