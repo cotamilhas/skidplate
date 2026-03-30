@@ -76,7 +76,7 @@ docker-compose up -d
 This command will:
 1. Build the Docker image from the Dockerfile
 2. Start the bot container
-3. Mount local volumes for hot-reloading cogs and config changes
+3. Mount the entire project directory for live code changes
 4. Automatically restart on failure
 
 To view logs:
@@ -106,8 +106,7 @@ Run the container:
 ```bash
 docker run -d --name skidplate-bot \
   --env-file .env \
-  -v $(pwd)/cogs:/app/cogs \
-  -v $(pwd)/config.py:/app/config.py \
+  -v $(pwd):/app \
   --restart unless-stopped \
   skidplate:latest
 ```
@@ -188,7 +187,7 @@ skidplate/
 
 Commands are organized as cogs in the `cogs/` directory. Each cog is a Python module that extends the bot's functionality.
 
-When using Docker Compose, the cogs directory is mounted as a volume, allowing you to add or modify cogs without restarting the container (though you may need to reload them via Discord commands).
+When using Docker Compose, the entire project directory is mounted as a volume, allowing you to edit any file without rebuilding the image (though a container restart is needed for changes outside of hot-reloadable cogs).
 
 ## Troubleshooting
 
