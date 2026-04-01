@@ -18,7 +18,7 @@ from clients import ModerationAPIHelper
 
 PERMISSION_LABELS = {
     "ManageModerators": "Manage Moderators",
-    "BanUsers": "Ban Users",
+    "BanUsers": "Ban Players",
     "ChangeUserSettings": "Change Settings",
     "ChangeCreationStatus": "Change Creation Status",
     "ManageAnnouncements": "Manage Announcements",
@@ -644,14 +644,14 @@ class Moderation(commands.Cog):
     @has_moderator_role()
     async def mod_perms(self, interaction: discord.Interaction):
         debug(f"mod_perms called by {interaction.user}")
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         
         user_id = interaction.user.id
         data, error = await self.api_request("GET", "/permissions", user_id)
         debug(f"Permissions data: {data}, error: {error}")
         
         if error:
-            await self.send_error(interaction, error, ephemeral=False)
+            await self.send_error(interaction, error, ephemeral=True)
             return
         
         embed = discord.Embed(title="Your Permissions", color=EMBED_COLOR)
@@ -971,7 +971,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="mod_set_permissions", description="Update moderator permissions")
     @app_commands.describe(
         username="Moderator username",
-        ban_users="Can ban users",
+        ban_users="Can ban players",
         change_creation_status="Can change creation status",
         change_user_settings="Can change user settings",
         view_grief_reports="Can view grief reports",
