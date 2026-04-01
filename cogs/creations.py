@@ -25,6 +25,7 @@ class SearchResultsPaginator(discord.ui.View):
         self.fetcher = fetcher
         self.player_creation_type = player_creation_type
         self.platform = platform
+        self._loading = False
         self.update_buttons()
 
     def update_buttons(self):
@@ -39,21 +40,35 @@ class SearchResultsPaginator(discord.ui.View):
 
     @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.primary)
     async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._loading:
+            await interaction.response.defer()
+            return
         await interaction.response.defer()
+        self._loading = True
         self.current_page -= 1
         self.prev_page.disabled = True
         self.next_page.disabled = True
         await interaction.followup.edit_message(interaction.message.id, view=self)
-        await self.load_and_display_page(interaction)
+        try:
+            await self.load_and_display_page(interaction)
+        finally:
+            self._loading = False
 
     @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.primary)
     async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._loading:
+            await interaction.response.defer()
+            return
         await interaction.response.defer()
+        self._loading = True
         self.current_page += 1
         self.prev_page.disabled = True
         self.next_page.disabled = True
         await interaction.followup.edit_message(interaction.message.id, view=self)
-        await self.load_and_display_page(interaction)
+        try:
+            await self.load_and_display_page(interaction)
+        finally:
+            self._loading = False
 
     async def load_and_display_page(self, interaction: discord.Interaction):
         result = await self.fetcher.search_creations(
@@ -87,11 +102,11 @@ class SearchResultsPaginator(discord.ui.View):
 class Creations(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.session = aiohttp.ClientSession()
+        self.session = bot.http_session
         self.creation_fetcher = CreationDataFetcher(self.session, URL)
 
     async def cog_unload(self):
-        await self.session.close()
+        return None
 
     async def send_top_embed(
         self,

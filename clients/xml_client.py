@@ -1,6 +1,6 @@
 import aiohttp
 import xml.etree.ElementTree as ET
-from typing import Optional
+from typing import Optional, Mapping, Any
 from config import DEBUG_MODE
 
 
@@ -13,10 +13,10 @@ class XMLFetcher:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
 
-    async def fetch_xml(self, url: str) -> Optional[ET.Element]:
-        debug(f"GET XML: {url}")
+    async def fetch_xml(self, url: str, params: Optional[Mapping[str, Any]] = None) -> Optional[ET.Element]:
+        debug(f"GET XML: {url} params={params}")
         try:
-            async with self.session.get(url) as resp:
+            async with self.session.get(url, params=params) as resp:
                 if resp.status != 200:
                     debug(f"HTTP {resp.status} while fetching XML")
                     return None

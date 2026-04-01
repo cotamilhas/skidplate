@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+import aiohttp
 import os
 import asyncio
 from datetime import datetime, timezone
@@ -152,6 +153,7 @@ async def on_ready():
 
 if __name__ == "__main__":
     async def main():
+        bot.http_session = aiohttp.ClientSession()
         try:
             await load_cogs()
             await bot.start(TOKEN)
@@ -159,5 +161,8 @@ if __name__ == "__main__":
             print("The provided token is invalid. Please verify your token and try again.")
         except Exception as e:
             print(f"An error occurred: {e}")
+        finally:
+            if hasattr(bot, "http_session") and not bot.http_session.closed:
+                await bot.http_session.close()
 
     asyncio.run(main())

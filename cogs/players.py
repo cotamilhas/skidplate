@@ -1,28 +1,22 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import aiohttp
 import os
 from config import EMBED_COLOR, URL, FULL, HALF, EMPTY, SHOW_WIN_RATE
 from utils import (
-    debug, PlayerDataFetcher, create_basic_embed
+    debug, PlayerDataFetcher, create_basic_embed, prepare_player_avatar_attachment, cleanup_temp_file
 )
-from clients import XMLFetcher
 from ui import add_player_fields_to_embed
 
 
 class Players(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.session = aiohttp.ClientSession()
+        self.session = bot.http_session
         self.player_fetcher = PlayerDataFetcher(self.session, URL)
-        self.xml_fetcher = XMLFetcher(self.session)
 
     async def cog_unload(self):
-        await self.session.close()
-
-    async def fetch_bytes(self, url: str) -> bytes | None:
-        return await self.xml_fetcher.fetch_bytes(url)
+        return None
 
     @app_commands.command(name="player", description="Shows information about a player.")
     @app_commands.describe(username="The username of the player you want to view.")
@@ -46,24 +40,13 @@ class Players(commands.Cog):
         
         add_player_fields_to_embed(embed, info, SHOW_WIN_RATE, FULL, HALF, EMPTY)
 
-        files = []
-
-        if avatar_url:
-            avatar_bytes = await self.fetch_bytes(avatar_url)
-            if avatar_bytes:
-                temp_path = f"temp_avatar_{player_id}.png"
-                try:
-                    with open(temp_path, "wb") as f:
-                        f.write(avatar_bytes)
-                    files.append(discord.File(temp_path, filename="avatar.png"))
-                    embed.set_image(url="attachment://avatar.png")
-                except Exception as e:
-                    debug(f"File write error: {e}")
-
-        if not files:
-            fallback = discord.File("img/secondary.png", filename="secondary.png")
-            files.append(fallback)
-            embed.set_image(url="attachment://secondary.png")
+        avatar_file, avatar_image_url, temp_avatar_path = await prepare_player_avatar_attachment(
+            self.session,
+            avatar_url,
+            player_id,
+        )
+        files = [avatar_file]
+        embed.set_image(url=avatar_image_url)
 
         if os.path.exists(skill_img_path):
             skill_file = discord.File(skill_img_path, filename=f"{skill_level}.PNG")
@@ -77,11 +60,10 @@ class Players(commands.Cog):
 
         debug(f"Sending embed with {len(files)} file(s)")
 
-        await interaction.followup.send(embed=embed, files=files)
-
-        temp_avatar_path = f"temp_avatar_{player_id}.png"
-        if os.path.exists(temp_avatar_path):
-            os.remove(temp_avatar_path)
+        try:
+            await interaction.followup.send(embed=embed, files=files)
+        finally:
+            cleanup_temp_file(temp_avatar_path)
 
 
 async def setup(bot):

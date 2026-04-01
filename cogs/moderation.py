@@ -2,14 +2,51 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import aiohttp
-from typing import Optional
-import json
+from typing import Optional, Any
 import os
-from datetime import datetime
 from io import BytesIO
-from config import EMBED_COLOR, URL, DEBUG_MODE, MODERATOR_ROLE_ID, MAX_QUOTA
-from utils import debug, PlayerDataFetcher, CreationDataFetcher
+from config import EMBED_COLOR, URL, MODERATOR_ROLE_ID, MAX_QUOTA
+from utils import (
+    debug,
+    PlayerDataFetcher,
+    CreationDataFetcher,
+    prepare_player_avatar_attachment,
+    cleanup_temp_file,
+)
 from clients import ModerationAPIHelper
+
+
+PERMISSION_LABELS = {
+    "ManageModerators": "Manage Moderators",
+    "BanUsers": "Ban Users",
+    "ChangeUserSettings": "Change Settings",
+    "ChangeCreationStatus": "Change Creation Status",
+    "ManageAnnouncements": "Manage Announcements",
+    "ManageHotlap": "Manage Hotlap",
+    "ManageSystemEvents": "Manage System Events",
+    "ViewGriefReports": "View Grief Reports",
+    "ViewPlayerComplaints": "View Player Complaints",
+    "ViewPlayerCreationComplaints": "View Creation Complaints",
+    "ChangeUserQuota": "Change User Quota",
+}
+
+PERMISSION_ARGUMENT_MAP = {
+    "BanUsers": "ban_users",
+    "ChangeCreationStatus": "change_creation_status",
+    "ChangeUserSettings": "change_user_settings",
+    "ViewGriefReports": "view_grief_reports",
+    "ViewPlayerComplaints": "view_player_complaints",
+    "ViewPlayerCreationComplaints": "view_player_creation_complaints",
+    "ManageModerators": "manage_moderators",
+    "ManageAnnouncements": "manage_announcements",
+    "ManageHotlap": "manage_hotlap",
+    "ManageSystemEvents": "manage_system_events",
+    "ChangeUserQuota": "change_user_quota",
+}
+
+DEFAULT_MODERATOR_PERMISSIONS = {
+    permission: False for permission in PERMISSION_ARGUMENT_MAP
+}
 
 
 def has_moderator_role():
@@ -43,31 +80,329 @@ def has_moderator_role():
     return app_commands.check(predicate)
 
 
+class ComplaintsPageJumpModal(discord.ui.Modal, title="Go to Complaints Page"):
+    page_input = discord.ui.TextInput(
+        label="Page",
+        placeholder="Enter a page number (e.g. 1)",
+        min_length=1,
+        max_length=6,
+    )
+
+    def __init__(self, view: "ComplaintsPaginator"):
+        super().__init__()
+        self.view = view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw_value = str(self.page_input).strip()
+        if not raw_value.isdigit():
+            await interaction.response.send_message("Please enter a valid page number.", ephemeral=True)
+            return
+
+        target_page = int(raw_value)
+        await interaction.response.defer(ephemeral=True)
+        if self.view._loading:
+            return
+        self.view._loading = True
+        try:
+            await self.view.go_to_page(interaction, target_page)
+        finally:
+            self.view._loading = False
+
+
+class ComplaintsPaginator(discord.ui.View):
+    def __init__(
+        self,
+        moderation_cog: "Moderation",
+        interaction_user_id: int,
+        moderator_user_id: int,
+        endpoint: str,
+        mode: str,
+        per_page: int = 1,
+        start_page: int = 1,
+    ):
+        super().__init__(timeout=300)
+        self.moderation_cog = moderation_cog
+        self.interaction_user_id = interaction_user_id
+        self.moderator_user_id = moderator_user_id
+        self.endpoint = endpoint
+        self.mode = mode
+        self.per_page = per_page
+        self.current_page = max(1, start_page)
+        self.total_pages: Optional[int] = None
+        self.total_items: Optional[int] = None
+        self.items: list[dict[str, Any]] = []
+        self.message: Optional[discord.Message] = None
+        self.preview_attachment: Optional[discord.File] = None
+        self.temp_preview_path: Optional[str] = None
+        self._loading = False
+        self.update_buttons()
+
+    def _clear_preview_attachment(self):
+        cleanup_temp_file(self.temp_preview_path)
+        self.temp_preview_path = None
+        self.preview_attachment = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.interaction_user_id:
+            await interaction.response.send_message("You are not the one who initiated this command.", ephemeral=True)
+            return False
+        return True
+
+    def update_buttons(self):
+        self.prev_page.disabled = self.current_page <= 1
+        if self.total_pages is None:
+            self.next_page.disabled = False
+        else:
+            self.next_page.disabled = self.current_page >= self.total_pages
+
+    async def fetch_page(self, page: int) -> tuple[Optional[list[dict[str, Any]]], Optional[int], Optional[int], Optional[str]]:
+        params = {
+            "page": max(0, page - 1),
+            "per_page": self.per_page,
+        }
+        data, error = await self.moderation_cog.api_request("GET", self.endpoint, self.moderator_user_id, params=params)
+        if error:
+            return None, None, None, error
+
+        total: Optional[int] = None
+        items: list[dict[str, Any]] = []
+        
+        if isinstance(data, dict) and "items" in data:
+            items = data.get("items") or []
+            total = data.get("count")
+            debug(f"API response for {self.endpoint} page {page}: items={len(items)}, total={total}")
+            if not isinstance(total, int):
+                total = None
+        elif isinstance(data, dict) and "Page" in data:
+            items = data.get("Page") or []
+            total_val = data.get("Total")
+            total = total_val if isinstance(total_val, int) else None
+        elif isinstance(data, list):
+            items = data
+            total = None
+        else:
+            return None, None, None, "Unexpected API response format."
+
+        total_pages: Optional[int] = None
+        if total is not None and self.per_page > 0:
+            total_pages = max(1, (total + self.per_page - 1) // self.per_page)
+
+        items.reverse()
+        return items, total, total_pages, None
+
+    async def initialize(self) -> tuple[Optional[discord.Embed], Optional[str]]:
+        items, total, total_pages, error = await self.fetch_page(self.current_page)
+        if error:
+            return None, error
+
+        self.items = items or []
+        self.total_items = total
+        self.total_pages = total_pages
+        self.update_buttons()
+        return await self.build_embed(), None
+
+    async def go_to_page(self, interaction: discord.Interaction, page: int):
+        if page < 1:
+            await interaction.followup.send("Page must be 1 or higher.", ephemeral=True)
+            return
+
+        items, total, total_pages, error = await self.fetch_page(page)
+        if error:
+            await interaction.followup.send(f"Failed to fetch page: {error}", ephemeral=True)
+            return
+
+        if not items and page > 1:
+            await interaction.followup.send("That page has no items.", ephemeral=True)
+            return
+
+        self.current_page = page
+        self.items = items or []
+        self.total_items = total
+        self.total_pages = total_pages
+        self.update_buttons()
+
+        if self.message is not None:
+            embed = await self.build_embed()
+            attachments = [self.preview_attachment] if self.preview_attachment else []
+            await self.message.edit(embed=embed, view=self, attachments=attachments)
+
+    async def build_embed(self) -> discord.Embed:
+        self._clear_preview_attachment()
+        if self.mode == "player":
+            return await self.build_player_embed()
+        return await self.build_creation_embed()
+
+    async def build_player_embed(self) -> discord.Embed:
+        total_pages_text = str(self.total_pages) if self.total_pages is not None else "?"
+        embed = discord.Embed(
+            title="Player Complaints",
+            description=f"Page {self.current_page}/{total_pages_text}",
+            color=EMBED_COLOR,
+        )
+
+        start_index = (self.current_page - 1) * self.per_page
+        first_reported_player_id: Optional[int] = None
+
+        for index, item in enumerate(self.items, start=1):
+            reporter_id = item.get("UserId")
+            reported_id = item.get("PlayerId")
+            reason = item.get("Reason", "UNKNOWN")
+
+            reporter_name = await self.moderation_cog.resolve_player_name(reporter_id)
+            reported_name = await self.moderation_cog.resolve_player_name(reported_id)
+
+            if first_reported_player_id is None and isinstance(reported_id, int):
+                first_reported_player_id = reported_id
+
+            embed.add_field(
+                name=f"Complaint #{start_index + index}",
+                value=(
+                    f"Reporter: **{reporter_name}** (`{reporter_id}`)\n"
+                    f"Reported: **{reported_name}** (`{reported_id}`)\n"
+                    f"Reason: **{reason}**"
+                ),
+                inline=False,
+            )
+
+        if first_reported_player_id is not None:
+            avatar_url = await self.moderation_cog.resolve_player_avatar(first_reported_player_id)
+            avatar_file, avatar_thumbnail_url, temp_avatar_path = await prepare_player_avatar_attachment(
+                self.moderation_cog.session,
+                avatar_url,
+                str(first_reported_player_id),
+            )
+            self.preview_attachment = avatar_file
+            self.temp_preview_path = temp_avatar_path
+            embed.set_thumbnail(url=avatar_thumbnail_url)
+
+        return embed
+
+    async def build_creation_embed(self) -> discord.Embed:
+        total_pages_text = str(self.total_pages) if self.total_pages is not None else "?"
+        embed = discord.Embed(
+            title="Creation Complaints",
+            description=f"Page {self.current_page}/{total_pages_text}",
+            color=EMBED_COLOR,
+        )
+
+        start_index = (self.current_page - 1) * self.per_page
+        first_creation_preview: Optional[str] = None
+        first_creation_id: Optional[int] = None
+
+        for index, item in enumerate(self.items, start=1):
+            reporter_id = item.get("UserId")
+            creator_id = item.get("PlayerId")
+            creation_id = item.get("PlayerCreationId")
+            reason = item.get("Reason", "UNKNOWN")
+
+            reporter_name = await self.moderation_cog.resolve_player_name(reporter_id)
+            creator_name = await self.moderation_cog.resolve_player_name(creator_id)
+
+            creation_name = "Unknown Creation"
+            preview_url = None
+            if isinstance(creation_id, int):
+                creation_info = await self.moderation_cog.resolve_creation_info(creation_id)
+                creation_name = creation_info.get("name", "Unknown Creation")
+                preview_url = creation_info.get("preview_url")
+                if first_creation_id is None:
+                    first_creation_id = creation_id
+
+            if first_creation_preview is None and preview_url:
+                first_creation_preview = preview_url
+
+            embed.add_field(
+                name=f"Complaint #{start_index + index}",
+                value=(
+                    f"Reporter: **{reporter_name}** (`{reporter_id}`)\n"
+                    f"Creator: **{creator_name}** (`{creator_id}`)\n"
+                    f"Creation: **{creation_name}** (`{creation_id}`)\n"
+                    f"Reason: **{reason}**"
+                ),
+                inline=False,
+            )
+
+        if first_creation_id is not None:
+            preview_bytes = await self.moderation_cog.get_creation_preview_bytes(first_creation_id)
+            if preview_bytes:
+                self.preview_attachment = discord.File(BytesIO(preview_bytes), filename="creation_preview.png")
+                embed.set_thumbnail(url="attachment://creation_preview.png")
+            elif first_creation_preview:
+                embed.set_thumbnail(url=first_creation_preview)
+        elif first_creation_preview:
+            embed.set_thumbnail(url=first_creation_preview)
+
+        return embed
+
+    async def on_timeout(self):
+        self._clear_preview_attachment()
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+    @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.primary)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._loading:
+            await interaction.response.defer()
+            return
+        await interaction.response.defer()
+        self._loading = True
+        try:
+            await self.go_to_page(interaction, self.current_page - 1)
+        finally:
+            self._loading = False
+
+    @discord.ui.button(label="Go To Page", style=discord.ButtonStyle.secondary)
+    async def go_to_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._loading:
+            await interaction.response.defer()
+            return
+        await interaction.response.send_modal(ComplaintsPageJumpModal(self))
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.primary)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self._loading:
+            await interaction.response.defer()
+            return
+        await interaction.response.defer()
+        self._loading = True
+        try:
+            await self.go_to_page(interaction, self.current_page + 1)
+        finally:
+            self._loading = False
+
+
 class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.session = aiohttp.ClientSession()
+        self.session = bot.http_session
+        self.moderation_session = aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar())
         self.api_base = URL
         self.user_tokens: dict[int, str] = {}
         self.player_fetcher = PlayerDataFetcher(self.session, URL)
         self.creation_fetcher = CreationDataFetcher(self.session, URL)
+        self.player_name_cache: dict[int, str] = {}
+        self.creation_info_cache: dict[int, dict[str, str]] = {}
+        self.creation_preview_cache: dict[int, bytes] = {}
         
         self.logs_dir = "api_logs"
         if not os.path.exists(self.logs_dir):
             os.makedirs(self.logs_dir)
 
         self.moderation_api = ModerationAPIHelper(
-            session=self.session,
+            session=self.moderation_session,
             api_base=self.api_base,
             logs_dir=self.logs_dir,
             user_tokens=self.user_tokens
         )
 
     async def cog_unload(self):
-        await self.session.close()
-
-    def save_api_response(self, endpoint: str, method: str, response_data, status_code: int, error: Optional[str] = None):
-        self.moderation_api.save_api_response(endpoint, method, response_data, status_code, error)
+        await self.moderation_session.close()
 
     async def get_auth_headers(self, user_id: int) -> dict:
         return await self.moderation_api.get_auth_headers(user_id)
@@ -75,12 +410,169 @@ class Moderation(commands.Cog):
     async def api_request(self, method: str, endpoint: str, user_id: int, **kwargs):
         return await self.moderation_api.api_request(method, endpoint, user_id, **kwargs)
 
+    @staticmethod
+    def _embed(title: str, description: str, color: discord.Color) -> discord.Embed:
+        return discord.Embed(title=title, description=description, color=color)
+
+    async def send_embed(
+        self,
+        interaction: discord.Interaction,
+        *,
+        title: str,
+        description: str,
+        color: discord.Color,
+        ephemeral: bool = True,
+    ):
+        await interaction.followup.send(
+            embed=self._embed(title=title, description=description, color=color),
+            ephemeral=ephemeral,
+        )
+
+    async def send_error(self, interaction: discord.Interaction, message: str, ephemeral: bool = True):
+        await self.send_embed(
+            interaction,
+            title="Error",
+            description=message,
+            color=discord.Color.red(),
+            ephemeral=ephemeral,
+        )
+
+    async def send_success(self, interaction: discord.Interaction, message: str, ephemeral: bool = True):
+        await self.send_embed(
+            interaction,
+            title="Success",
+            description=message,
+            color=discord.Color.green(),
+            ephemeral=ephemeral,
+        )
+
+    async def start_complaints_paginator(
+        self,
+        interaction: discord.Interaction,
+        endpoint: str,
+        mode: str,
+        page: int,
+    ):
+        if page < 1:
+            await interaction.followup.send("Page must be 1 or higher.", ephemeral=True)
+            return
+
+        view = ComplaintsPaginator(
+            moderation_cog=self,
+            interaction_user_id=interaction.user.id,
+            moderator_user_id=interaction.user.id,
+            endpoint=endpoint,
+            mode=mode,
+            per_page=1,
+            start_page=page,
+        )
+
+        embed, error = await view.initialize()
+        if error:
+            await self.send_error(interaction, error, ephemeral=True)
+            return
+
+        send_kwargs = {
+            "embed": embed,
+            "view": view,
+            "ephemeral": True,
+            "wait": True,
+        }
+        if view.preview_attachment:
+            send_kwargs["file"] = view.preview_attachment
+
+        sent_message = await interaction.followup.send(**send_kwargs)
+        view.message = sent_message
+
+    async def get_moderators(self, user_id: int) -> tuple[list[dict[str, Any]], Optional[str]]:
+        data, error = await self.api_request("GET", "/moderators", user_id, params={"page": 1, "per_page": 1000})
+        if error:
+            return [], error
+
+        if isinstance(data, list):
+            return data, None
+        if isinstance(data, dict):
+            return data.get("Page", []), None
+        return [], "Unexpected moderator list format."
+
+    async def find_moderator_by_username(self, user_id: int, username: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+        moderators, error = await self.get_moderators(user_id)
+        if error:
+            return None, error
+
+        for moderator in moderators:
+            if moderator.get("Username", "").lower() == username.lower():
+                return moderator, None
+
+        return None, None
+
+    async def resolve_player_name(self, player_id: Any) -> str:
+        if not isinstance(player_id, int):
+            return "Unknown"
+
+        cached = self.player_name_cache.get(player_id)
+        if cached:
+            return cached
+
+        try:
+            info = await self.player_fetcher.get_player_info(str(player_id))
+            username = (
+                (info or {}).get("username")
+                or (info or {}).get("Username")
+                or f"Unknown ({player_id})"
+            )
+        except Exception:
+            username = f"Unknown ({player_id})"
+
+        self.player_name_cache[player_id] = username
+        return username
+
+    async def resolve_player_avatar(self, player_id: Any) -> Optional[str]:
+        if not isinstance(player_id, int):
+            return None
+
+        try:
+            return await self.player_fetcher.get_player_avatar(str(player_id))
+        except Exception:
+            return None
+
+    async def resolve_creation_info(self, creation_id: int) -> dict[str, str]:
+        cached = self.creation_info_cache.get(creation_id)
+        if cached:
+            return cached
+
+        info = await self.creation_fetcher.get_creation_info(creation_id) or {}
+        resolved = {
+            "name": info.get("name", "Unknown Creation"),
+            "preview_url": f"{URL}player_creations/{creation_id}/preview_image.png",
+        }
+        self.creation_info_cache[creation_id] = resolved
+        return resolved
+
+    async def get_creation_preview_bytes(self, creation_id: int) -> Optional[bytes]:
+        cached = self.creation_preview_cache.get(creation_id)
+        if cached is not None:
+            return cached
+
+        preview_url = f"{URL}player_creations/{creation_id}/preview_image.png"
+        try:
+            async with self.session.get(preview_url) as resp:
+                if resp.status != 200:
+                    return None
+
+                preview_bytes = await resp.read()
+                self.creation_preview_cache[creation_id] = preview_bytes
+                return preview_bytes
+        except Exception as e:
+            debug(f"Failed to fetch cached preview image for {creation_id}: {e}")
+            return None
+
     # ===== MODERATOR SELF MANAGEMENT =====
     @app_commands.command(name="mod_login", description="Connect as API moderator")
     @app_commands.describe(username="Moderator username", password="Moderator password")
     @has_moderator_role()
     async def mod_login(self, interaction: discord.Interaction, username: str, password: str):
-        debug(f"mod_login called by {interaction.user} with username: {username}")
+        debug(f"mod_login called by {interaction.user}")
         await interaction.response.defer(ephemeral=True)
         
         user_id = interaction.user.id
@@ -88,26 +580,9 @@ class Moderation(commands.Cog):
         try:
             url = f"{self.api_base}api/moderation/login"
             debug(f"Login attempt to: {url}")
-            async with self.session.post(url, params={"login": username, "password": password}) as resp:
+            async with self.moderation_session.post(url, data={"login": username, "password": password}) as resp:
                 debug(f"Login response status: {resp.status}")
                 text = await resp.text()
-                debug(f"Login response data: {text}")
-                
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                filename = f"{self.logs_dir}/api_login_{timestamp}.json"
-                login_data = {
-                    "timestamp": datetime.now().isoformat(),
-                    "endpoint": "/login",
-                    "method": "POST",
-                    "status_code": resp.status,
-                    "response": text,
-                    "username": username,
-                    "user_id": user_id
-                }
-                if DEBUG_MODE:
-                    with open(filename, 'w', encoding='utf-8') as f:
-                        json.dump(login_data, f, indent=2, ensure_ascii=False)
-                    debug(f"Login response saved to: {filename}")
                 
                 if resp.status == 200 and text == "ok":
                     cookies = resp.cookies
@@ -115,21 +590,28 @@ class Moderation(commands.Cog):
                         token = cookies['Token'].value
                         self.user_tokens[user_id] = token
                         debug(f"Token received for user {user_id}: {token[:10]}...")
-                        
-                        embed = discord.Embed(title="Login Success", description=f"Connected as **{username}**", color=discord.Color.green())
-                        await interaction.followup.send(embed=embed, ephemeral=True)
+                        await self.send_success(interaction, f"Connected as **{username}**", ephemeral=True)
                     else:
                         debug("No token in response cookies")
-                        embed = discord.Embed(title="Login Failed", description="Server did not provide token", color=discord.Color.red())
-                        await interaction.followup.send(embed=embed, ephemeral=True)
+                        await self.send_embed(
+                            interaction,
+                            title="Login Failed",
+                            description="Server did not provide token",
+                            color=discord.Color.red(),
+                            ephemeral=True,
+                        )
                 else:
-                    debug(f"Login failed with status {resp.status}: {text}")
-                    embed = discord.Embed(title="Login Failed", description="Invalid username or password", color=discord.Color.red())
-                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    debug(f"Login failed with status {resp.status}")
+                    await self.send_embed(
+                        interaction,
+                        title="Login Failed",
+                        description="Invalid username or password",
+                        color=discord.Color.red(),
+                        ephemeral=True,
+                    )
         except Exception as e:
             debug(f"Login exception: {str(e)}")
-            embed = discord.Embed(title="Error", description=f"```{str(e)}```", color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, f"```{str(e)}```", ephemeral=True)
             
     @app_commands.command(name="mod_create", description="Create a new moderator")
     @app_commands.describe(username="New moderator username", password="New moderator password")
@@ -141,42 +623,22 @@ class Moderation(commands.Cog):
         user_id = interaction.user.id
         
         try:    
-            permissions = {
-                "BanUsers": False,
-                "ChangeCreationStatus": False,
-                "ChangeUserSettings": False,
-                "ViewGriefReports": False,
-                "ViewPlayerComplaints": False,
-                "ViewPlayerCreationComplaints": False,
-                "ManageModerators": False,
-                "ManageAnnouncements": False,
-                "ManageHotlap": False,
-                "ManageSystemEvents": False,
-                "ChangeUserQuota": False
-            }
+            permissions = DEFAULT_MODERATOR_PERMISSIONS.copy()
             
             data, error = await self.api_request("POST", "/moderators", user_id,
                                                 params={"username": username, "password": password},
                                                 json=permissions)
             
             if error:
-                embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await self.send_error(interaction, error, ephemeral=True)
                 return
-            
-            embed = discord.Embed(
-                title="Moderator Created",
-                description=f"Moderator **{username}** created successfully",
-                color=discord.Color.green()
-            )
-            
-            await interaction.followup.send(embed=embed, ephemeral=True)
+
+            await self.send_success(interaction, f"Moderator **{username}** created successfully", ephemeral=True)
             debug(f"Moderator {username} created by {interaction.user.name}")
             
         except Exception as e:
             debug(f"Error creating moderator: {str(e)}")
-            embed = discord.Embed(title="Error", description=f"```{str(e)}```", color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, f"```{str(e)}```", ephemeral=True)
 
     @app_commands.command(name="mod_perms", description="View your moderation permissions")
     @has_moderator_role()
@@ -189,28 +651,13 @@ class Moderation(commands.Cog):
         debug(f"Permissions data: {data}, error: {error}")
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed)
+            await self.send_error(interaction, error, ephemeral=False)
             return
         
         embed = discord.Embed(title="Your Permissions", color=EMBED_COLOR)
         
         if isinstance(data, dict):
-            perms = {
-                "ManageModerators": "Manage Moderators",
-                "BanUsers": "Ban Users",
-                "ChangeUserSettings": "Change Settings",
-                "ChangeCreationStatus": "Change Creation Status",
-                "ManageAnnouncements": "Manage Announcements",
-                "ManageHotlap": "Manage Hotlap",
-                "ManageSystemEvents": "Manage System Events",
-                "ViewGriefReports": "View Grief Reports",
-                "ViewPlayerComplaints": "View Player Complaints",
-                "ViewPlayerCreationComplaints": "View Creation Complaints",
-                "ChangeUserQuota": "Change User Quota"
-            }
-            
-            for key, label in perms.items():
+            for key, label in PERMISSION_LABELS.items():
                 has_perm = data.get(key, False)
                 status = "✅ Yes" if has_perm else "❌ No"
                 debug(f"Permission {key}: {has_perm}")
@@ -229,12 +676,10 @@ class Moderation(commands.Cog):
         data, error = await self.api_request("POST", "/set_username", user_id, params={"username": username})
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
-        
-        embed = discord.Embed(title="Success", description=f"Username changed to **{username}**", color=discord.Color.green())
-        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        await self.send_success(interaction, f"Username changed to **{username}**", ephemeral=True)
 
     @app_commands.command(name="mod_set_password", description="Change your moderator password")
     @app_commands.describe(password="New password")
@@ -244,15 +689,13 @@ class Moderation(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         
         user_id = interaction.user.id
-        data, error = await self.api_request("POST", "/set_password", user_id, params={"password": password})
+        data, error = await self.api_request("POST", "/set_password", user_id, data={"password": password})
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
-        
-        embed = discord.Embed(title="Success", description="Password changed successfully", color=discord.Color.green())
-        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        await self.send_success(interaction, "Password changed successfully", ephemeral=True)
 
     # ===== PLAYER MANAGEMENT =====
     @app_commands.command(name="ban_player", description="Ban or unban player")
@@ -262,23 +705,19 @@ class Moderation(commands.Cog):
         debug(f"ban_player called by {interaction.user} - username: {username}, ban: {ban}")
         await interaction.response.defer(ephemeral=True)
 
-        async def send_error(message: str):
-            embed = discord.Embed(title="Error", description=message, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        
         user_id = interaction.user.id
         player_id = await self.player_fetcher.get_player_id(username)
         if player_id is None:
-            await send_error(f"Player '{username}' not found")
+            await self.send_error(interaction, f"Player '{username}' not found")
             return
-        
+
         debug(f"Found player ID {player_id} for username {username}")
-        
+
         is_banned = "true" if ban else "false"
         data, error = await self.api_request("POST", "/setBan", user_id, params={"id": player_id, "isBanned": is_banned})
-        
+
         if error:
-            await send_error(error)
+            await self.send_error(interaction, error)
             return
         
         avatar_url = await self.player_fetcher.get_player_avatar(player_id)
@@ -290,14 +729,17 @@ class Moderation(commands.Cog):
         embed.add_field(name="Username", value=f"**{username}**", inline=True)
         embed.add_field(name="ID", value=f"`{player_id}`", inline=True)
 
-        if avatar_url:
-            embed.set_thumbnail(url=avatar_url)
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
+        avatar_file, avatar_thumbnail_url, temp_avatar_path = await prepare_player_avatar_attachment(
+            self.session,
+            avatar_url,
+            player_id,
+        )
+        embed.set_thumbnail(url=avatar_thumbnail_url)
 
-        fallback = discord.File("img/secondary.png", filename="secondary.png")
-        embed.set_thumbnail(url="attachment://secondary.png")
-        await interaction.followup.send(embed=embed, file=fallback, ephemeral=True)
+        try:
+            await interaction.followup.send(embed=embed, file=avatar_file, ephemeral=True)
+        finally:
+            cleanup_temp_file(temp_avatar_path)
 
     @app_commands.command(name="set_player_settings", description="Modify player settings (show no previews, allow opposite platform)")
     @app_commands.describe(
@@ -320,19 +762,14 @@ class Moderation(commands.Cog):
         player_id = await self.player_fetcher.get_player_id(username)
 
         if player_id is None:
-            embed = discord.Embed(
-                title="Error",
-                description=f"Player '{username}' not found",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, f"Player '{username}' not found", ephemeral=True)
             return
 
         params = {
             "id": player_id
         }
         
-        if not show_no_previews and not allow_opposite_platform:
+        if show_no_previews is None and allow_opposite_platform is None:
             embed = discord.Embed(
                 title="No Changes",
                 description="No settings were modified. Please specify at least one setting to change.",
@@ -355,20 +792,10 @@ class Moderation(commands.Cog):
         )
 
         if error:
-            embed = discord.Embed(
-                title="Error",
-                description=error,
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
 
-        embed = discord.Embed(
-            title="Success",
-            description=f"Settings updated for **{username}**",
-            color=discord.Color.green()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await self.send_success(interaction, f"Settings updated for **{username}**", ephemeral=True)
         
     @app_commands.command(name="set_player_quota", description="Change a player's creation quota")
     @app_commands.describe(username="Player username", quota=f"New quota (integer between 0 and {MAX_QUOTA})")
@@ -378,24 +805,14 @@ class Moderation(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         if quota < 0 or quota > MAX_QUOTA:
-            embed = discord.Embed(
-                title="Error",
-                description=f"Quota must be an integer between 0 and {MAX_QUOTA}.",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, f"Quota must be an integer between 0 and {MAX_QUOTA}.", ephemeral=True)
             return
 
         user_id = interaction.user.id
 
         player_id = await self.player_fetcher.get_player_id(username)
         if player_id is None:
-            embed = discord.Embed(
-                title="Error",
-                description=f"Player '{username}' was not found.",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, f"Player '{username}' was not found.", ephemeral=True)
             return
 
         data, error = await self.api_request(
@@ -406,16 +823,14 @@ class Moderation(commands.Cog):
         )
 
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
 
-        embed = discord.Embed(
-            title="Success",
-            description=f"Quota for **{username}** (ID `{player_id}`) changed to **{quota}**.",
-            color=discord.Color.green()
+        await self.send_success(
+            interaction,
+            f"Quota for **{username}** (ID `{player_id}`) changed to **{quota}**.",
+            ephemeral=True,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
         
     # ===== PLAYER CREATION MANAGEMENT =====
     @app_commands.command(name="ban_creation", description="Ban or approve a creation")
@@ -431,8 +846,7 @@ class Moderation(commands.Cog):
         debug(f"Set status result: {data}, error: {error}")
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
         
         creation_info = await self.creation_fetcher.get_creation_info(creation_id)
@@ -446,19 +860,29 @@ class Moderation(commands.Cog):
         embed.add_field(name="Name", value=f"**{creation_name}**", inline=True)
         embed.add_field(name="ID", value=f"`{creation_id}`", inline=True)
         
-        preview_url = f"{URL}player_creations/{creation_id}/preview_image.png"
-        try:
-            async with self.session.get(preview_url) as resp:
-                if resp.status == 200:
-                    preview_bytes = await resp.read()
-                    preview_file = discord.File(BytesIO(preview_bytes), filename="preview.png")
-                    embed.set_thumbnail(url="attachment://preview.png")
-                    await interaction.followup.send(embed=embed, file=preview_file, ephemeral=True)
-                    return
-        except Exception as e:
-            debug(f"Failed to fetch preview image: {e}")
+        preview_bytes = await self.get_creation_preview_bytes(creation_id)
+        if preview_bytes:
+            preview_file = discord.File(BytesIO(preview_bytes), filename="preview.png")
+            embed.set_thumbnail(url="attachment://preview.png")
+            await interaction.followup.send(embed=embed, file=preview_file, ephemeral=True)
+            return
         
         await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    # ===== PLAYER/CREATION REPORTS & COMPLAINTS =====
+    @app_commands.command(name="player_complaints", description="View player complaints with pagination")
+    @app_commands.describe(page="Page number to open")
+    @has_moderator_role()
+    async def player_complaints(self, interaction: discord.Interaction, page: int = 1):
+        await interaction.response.defer(ephemeral=True)
+        await self.start_complaints_paginator(interaction, "/player_complaints", "player", page)
+
+    @app_commands.command(name="creation_complaints", description="View creation complaints with pagination")
+    @app_commands.describe(page="Page number to open")
+    @has_moderator_role()
+    async def creation_complaints(self, interaction: discord.Interaction, page: int = 1):
+        await interaction.response.defer(ephemeral=True)
+        await self.start_complaints_paginator(interaction, "/player_creation_complaints", "creation", page)
 
     # ===== MODERATOR MANAGEMENT =====
     @app_commands.command(name="mod_list", description="List all moderators")
@@ -472,8 +896,7 @@ class Moderation(commands.Cog):
         data, error = await self.api_request("GET", "/moderators", user_id, params={"page": page, "per_page": per_page})
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
         
         embed = discord.Embed(title=f"Moderators (Page {page})", color=discord.Color.blue())
@@ -508,20 +931,10 @@ class Moderation(commands.Cog):
         user_id = interaction.user.id
         
         try:
-            all_mods, error = await self.api_request("GET", "/moderators", user_id, params={"page": 1, "per_page": 1000})
-            
+            mod_data, error = await self.find_moderator_by_username(user_id, username)
             if error:
-                embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await self.send_error(interaction, error, ephemeral=True)
                 return
-            
-            moderators = all_mods if isinstance(all_mods, list) else all_mods.get("Page", [])
-            
-            mod_data = None
-            for mod in moderators:
-                if mod.get("Username", "").lower() == username.lower():
-                    mod_data = mod
-                    break
             
             if not mod_data:
                 embed = discord.Embed(
@@ -539,21 +952,8 @@ class Moderation(commands.Cog):
             embed.add_field(name="Username", value=f"**{username}**", inline=False)
             
             perms_list = []
-            permissions = {
-                "BanUsers": "Ban Users",
-                "ChangeCreationStatus": "Change Creation Status",
-                "ChangeUserSettings": "Change Settings",
-                "ViewGriefReports": "View Grief Reports",
-                "ViewPlayerComplaints": "View Player Complaints",
-                "ViewPlayerCreationComplaints": "View Creation Complaints",
-                "ManageModerators": "Manage Moderators",
-                "ManageAnnouncements": "Manage Announcements",
-                "ManageHotlap": "Manage Hotlap",
-                "ManageSystemEvents": "Manage System Events",
-                "ChangeUserQuota": "Change User Quota"
-            }
-            
-            for key, label in permissions.items():
+
+            for key, label in PERMISSION_LABELS.items():
                 if mod_data.get(key, False):
                     perms_list.append(label)
             
@@ -566,8 +966,7 @@ class Moderation(commands.Cog):
             
         except Exception as e:
             debug(f"Error in mod_get: {str(e)}")
-            embed = discord.Embed(title="Error", description=f"```{str(e)}```", color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, f"```{str(e)}```", ephemeral=True)
 
     @app_commands.command(name="mod_set_permissions", description="Update moderator permissions")
     @app_commands.describe(
@@ -589,55 +988,62 @@ class Moderation(commands.Cog):
         self,
         interaction: discord.Interaction,
         username: str,
-        ban_users: bool = False,
-        change_creation_status: bool = False,
-        change_user_settings: bool = False,
-        view_grief_reports: bool = False,
-        view_player_complaints: bool = False,
-        view_player_creation_complaints: bool = False,
-        manage_moderators: bool = False,
-        manage_announcements: bool = False,
-        manage_hotlap: bool = False,
-        manage_system_events: bool = False,
-        change_user_quota: bool = False
+        ban_users: Optional[bool] = None,
+        change_creation_status: Optional[bool] = None,
+        change_user_settings: Optional[bool] = None,
+        view_grief_reports: Optional[bool] = None,
+        view_player_complaints: Optional[bool] = None,
+        view_player_creation_complaints: Optional[bool] = None,
+        manage_moderators: Optional[bool] = None,
+        manage_announcements: Optional[bool] = None,
+        manage_hotlap: Optional[bool] = None,
+        manage_system_events: Optional[bool] = None,
+        change_user_quota: Optional[bool] = None
     ):
         debug(f"mod_set_permissions called by {interaction.user} for moderator {username}")
         await interaction.response.defer(ephemeral=True)
 
         user_id = interaction.user.id
-        all_mods, error = await self.api_request("GET", "/moderators", user_id, params={"page": 1, "per_page": 1000})
+        mod_data, error = await self.find_moderator_by_username(user_id, username)
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
-        
-        moderators = all_mods if isinstance(all_mods, list) else all_mods.get("Page", [])
-        
-        mod_id = None
-        for mod in moderators:
-            if mod.get("Username", "").lower() == username.lower():
-                mod_id = mod.get("ID")
-                break
-        
-        if mod_id is None:
-            embed = discord.Embed(title="Error", description=f"Moderator **{username}** not found", color=discord.Color.red())
+
+        if mod_data is None:
+            await self.send_error(interaction, f"Moderator **{username}** not found", ephemeral=True)
+            return
+
+        requested_updates = {
+            "ban_users": ban_users,
+            "change_creation_status": change_creation_status,
+            "change_user_settings": change_user_settings,
+            "view_grief_reports": view_grief_reports,
+            "view_player_complaints": view_player_complaints,
+            "view_player_creation_complaints": view_player_creation_complaints,
+            "manage_moderators": manage_moderators,
+            "manage_announcements": manage_announcements,
+            "manage_hotlap": manage_hotlap,
+            "manage_system_events": manage_system_events,
+            "change_user_quota": change_user_quota,
+        }
+
+        if all(value is None for value in requested_updates.values()):
+            embed = discord.Embed(
+                title="No Changes",
+                description="Specify at least one permission to update.",
+                color=discord.Color.yellow()
+            )
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
-        permissions_params = {
-            "BanUsers": str(ban_users).lower(),
-            "ChangeCreationStatus": str(change_creation_status).lower(),
-            "ChangeUserSettings": str(change_user_settings).lower(),
-            "ViewGriefReports": str(view_grief_reports).lower(),
-            "ViewPlayerComplaints": str(view_player_complaints).lower(),
-            "ViewPlayerCreationComplaints": str(view_player_creation_complaints).lower(),
-            "ManageModerators": str(manage_moderators).lower(),
-            "ManageAnnouncements": str(manage_announcements).lower(),
-            "ManageHotlap": str(manage_hotlap).lower(),
-            "ManageSystemEvents": str(manage_system_events).lower(),
-            "ChangeUserQuota": str(change_user_quota).lower()
-        }
+        mod_id = mod_data.get("ID")
+
+        permissions_params = {}
+        for api_field, argument_name in PERMISSION_ARGUMENT_MAP.items():
+            requested_value = requested_updates[argument_name]
+            effective_value = mod_data.get(api_field, False) if requested_value is None else requested_value
+            permissions_params[api_field] = str(bool(effective_value)).lower()
 
         data, error = await self.api_request(
             "POST",
@@ -646,16 +1052,10 @@ class Moderation(commands.Cog):
         )
 
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
 
-        embed = discord.Embed(
-            title="Success",
-            description=f"Permissions updated for moderator **{username}**",
-            color=discord.Color.green()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await self.send_success(interaction, f"Permissions updated for moderator **{username}**", ephemeral=True)
 
     @app_commands.command(name="mod_delete", description="Delete a moderator")
     @app_commands.describe(username="Moderator username")
@@ -665,36 +1065,25 @@ class Moderation(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         
         user_id = interaction.user.id
-        all_mods, error = await self.api_request("GET", "/moderators", user_id, params={"page": 1, "per_page": 1000})
+        mod_data, error = await self.find_moderator_by_username(user_id, username)
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
 
-        moderators = all_mods if isinstance(all_mods, list) else all_mods.get("Page", [])
-
-        mod_id = None
-        for mod in moderators:
-            if mod.get("Username", "").lower() == username.lower():
-                mod_id = mod.get("ID")
-                break
-        
-        if mod_id is None:
-            embed = discord.Embed(title="Error", description=f"Moderator **{username}** not found", color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+        if mod_data is None:
+            await self.send_error(interaction, f"Moderator **{username}** not found", ephemeral=True)
             return
+
+        mod_id = mod_data.get("ID")
         
         data, error = await self.api_request("DELETE", f"/moderators/{mod_id}", user_id)
         
         if error:
-            embed = discord.Embed(title="Error", description=error, color=discord.Color.red())
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await self.send_error(interaction, error, ephemeral=True)
             return
-        
-        embed = discord.Embed(title="Success", description=f"Moderator **{username}** deleted", 
-                            color=discord.Color.green())
-        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        await self.send_success(interaction, f"Moderator **{username}** deleted", ephemeral=True)
 
 
 async def setup(bot):

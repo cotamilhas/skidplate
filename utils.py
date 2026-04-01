@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 import os
+import tempfile
 from typing import Optional, List, Dict, Any, Union
 import json
 from config import EMBED_COLOR, URL, DEBUG_MODE
@@ -105,8 +106,8 @@ class PlayerDataFetcher:
         self.xml_fetcher = XMLFetcher(session)
 
     async def get_player_id(self, username: str) -> Optional[str]:
-        url = f"{self.base_url}players/to_id.xml?username={username}"
-        root = await self.xml_fetcher.fetch_xml(url)
+        url = f"{self.base_url}players/to_id.xml"
+        root = await self.xml_fetcher.fetch_xml(url, params={"username": username})
         if root is None:
             return None
 
@@ -160,15 +161,17 @@ class CreationDataFetcher:
         sort_order: str = "desc",
         platform: str = "PS3",
     ) -> Optional[List[Dict[str, Any]]]:
-        url = (
-            f"{self.base_url}player_creations.xml"
-            f"?page={page}&per_page={per_page}"
-            f"&sort_column={sort_column}"
-            f"&player_creation_type={player_creation_type}"
-            f"&platform={platform}&sort_order={sort_order}"
-        )
+        url = f"{self.base_url}player_creations.xml"
+        params = {
+            "page": page,
+            "per_page": per_page,
+            "sort_column": sort_column,
+            "player_creation_type": player_creation_type,
+            "platform": platform,
+            "sort_order": sort_order,
+        }
 
-        root = await self.xml_fetcher.fetch_xml(url)
+        root = await self.xml_fetcher.fetch_xml(url, params=params)
         if root is None:
             return None
 
@@ -249,15 +252,16 @@ class CreationDataFetcher:
         page: int = 1,
         platform: str = "PS3",
     ) -> Optional[Dict[str, Any]]:
-        url = (
-            f"{self.base_url}player_creations/search.xml"
-            f"?page={page}&per_page={per_page}"
-            f"&platform={platform}"
-            f"&player_creation_type={player_creation_type}"
-            f"&search={search_query}"
-        )
+        url = f"{self.base_url}player_creations/search.xml"
+        params = {
+            "page": page,
+            "per_page": per_page,
+            "platform": platform,
+            "player_creation_type": player_creation_type,
+            "search": search_query,
+        }
 
-        root = await self.xml_fetcher.fetch_xml(url)
+        root = await self.xml_fetcher.fetch_xml(url, params=params)
         if root is None:
             return None
 
@@ -300,11 +304,24 @@ class CreationDataFetcher:
             "total_pages": int(pc_root.get("total_pages", 1))
         }
 
-async def fetch_total_creations(session: aiohttp.ClientSession, name: str, url: str) -> str:
-    debug(f"GET {name}: {url}")
+async def fetch_total_creations(
+    session: aiohttp.ClientSession,
+    name: str,
+    base_url: str,
+    player_creation_type: str,
+    platform: str = "PS3",
+) -> str:
+    url = f"{base_url}player_creations.xml"
+    params = {
+        "page": 1,
+        "per_page": 0,
+        "player_creation_type": player_creation_type,
+        "platform": platform,
+    }
+    debug(f"GET {name}: {url} params={params}")
 
     try:
-        async with session.get(url) as resp:
+        async with session.get(url, params=params) as resp:
             debug(f"{name} HTTP status: {resp.status}")
 
             if resp.status != 200:
@@ -362,3 +379,38 @@ async def fetch_online_players(session: aiohttp.ClientSession, base_url: str) ->
 
 def create_basic_embed(title: str, color: discord.Color) -> discord.Embed:
     return discord.Embed(title=title, color=color)
+
+
+async def prepare_player_avatar_attachment(
+    session: aiohttp.ClientSession,
+    avatar_url: Optional[str],
+    player_id: str,
+    fallback_path: str = "img/secondary.png",
+) -> tuple[discord.File, str, Optional[str]]:
+    if avatar_url:
+        try:
+            async with session.get(avatar_url) as resp:
+                if resp.status == 200:
+                    avatar_bytes = await resp.read()
+                    temp_path = os.path.join(
+                        tempfile.gettempdir(),
+                        f"skidplate_avatar_{player_id}_{int(datetime.now().timestamp() * 1000)}.png",
+                    )
+                    with open(temp_path, "wb") as f:
+                        f.write(avatar_bytes)
+                    return discord.File(temp_path, filename="avatar.png"), "attachment://avatar.png", temp_path
+        except Exception as e:
+            debug(f"Failed to prepare avatar attachment: {e}")
+
+    return discord.File(fallback_path, filename="secondary.png"), "attachment://secondary.png", None
+
+
+def cleanup_temp_file(path: Optional[str]):
+    if not path:
+        return
+
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception as e:
+        debug(f"Failed to clean up temp file {path}: {e}")

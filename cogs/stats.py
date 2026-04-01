@@ -9,26 +9,26 @@ from utils import debug, fetch_total_creations, fetch_online_players
 class Stats(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.session = aiohttp.ClientSession()
+        self.session = bot.http_session
 
     async def cog_unload(self):
-        await self.session.close()
+        return None
 
     @app_commands.command(name="stats", description="Show server statistics.")
     async def server_stats(self, interaction: discord.Interaction):
         debug("Fetching server stats")
         await interaction.response.defer()
 
-        urls = {
-            "Mods": f"{URL}player_creations.xml?page=1&per_page=0&player_creation_type=CHARACTER&platform=PS3",
-            "Karts": f"{URL}player_creations.xml?page=1&per_page=0&player_creation_type=KART&platform=PS3",
-            "Tracks": f"{URL}player_creations.xml?page=1&per_page=0&player_creation_type=TRACK&platform=PS3"
+        creation_types = {
+            "Mods": "CHARACTER",
+            "Karts": "KART",
+            "Tracks": "TRACK",
         }
 
         stats = {}
 
-        for name, url in urls.items():
-            stats[name] = await fetch_total_creations(self.session, name, url)
+        for name, creation_type in creation_types.items():
+            stats[name] = await fetch_total_creations(self.session, name, URL, creation_type)
 
         online_players = await fetch_online_players(self.session, URL)
 

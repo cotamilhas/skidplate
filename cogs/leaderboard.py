@@ -10,7 +10,7 @@ from utils import debug, format_time, rating_to_stars, CreationDataFetcher
 class Leaderboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.session = aiohttp.ClientSession()
+        self.session = bot.http_session
         self.creation_fetcher = CreationDataFetcher(self.session, URL)
 
     LEADERBOARD_TYPE_CHOICES = [
@@ -41,7 +41,7 @@ class Leaderboard(commands.Cog):
     ]
     
     async def cog_unload(self):
-        await self.session.close()
+        return None
 
     @app_commands.command(
         name="hotlap",
@@ -49,19 +49,23 @@ class Leaderboard(commands.Cog):
     )
     async def hotlap(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        
-        url = (f"{URL}leaderboards/view.xml"
-            f"?type=LIFETIME&game_type=ONLINE_HOT_SEAT_RACE"
-            f"&platform=PS3&page=1&per_page=100")
 
-        debug(f"Fetching hotlap leaderboard: {url}")
+        leaderboard_url = f"{URL}leaderboards/view.xml"
+        leaderboard_params = {
+            "type": "LIFETIME",
+            "game_type": "ONLINE_HOT_SEAT_RACE",
+            "platform": "PS3",
+            "page": 1,
+            "per_page": 100,
+        }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    await interaction.followup.send("Failed to fetch hotlap data.")
-                    return
-                data = await resp.text()
+        debug(f"Fetching hotlap leaderboard: {leaderboard_url} params={leaderboard_params}")
+
+        async with self.session.get(leaderboard_url, params=leaderboard_params) as resp:
+            if resp.status != 200:
+                await interaction.followup.send("Failed to fetch hotlap data.")
+                return
+            data = await resp.text()
 
         try:
             root = ET.fromstring(data)
@@ -78,15 +82,18 @@ class Leaderboard(commands.Cog):
         page_num = 1
         
         while True:
-            url_page = (f"{URL}leaderboards/view.xml"
-                    f"?type=LIFETIME&game_type=ONLINE_HOT_SEAT_RACE"
-                    f"&platform=PS3&page={page_num}&per_page=100")
+            page_params = {
+                "type": "LIFETIME",
+                "game_type": "ONLINE_HOT_SEAT_RACE",
+                "platform": "PS3",
+                "page": page_num,
+                "per_page": 100,
+            }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url_page) as resp:
-                    if resp.status != 200:
-                        break
-                    data = await resp.text()
+            async with self.session.get(leaderboard_url, params=page_params) as resp:
+                if resp.status != 200:
+                    break
+                data = await resp.text()
                     
             try:
                 root = ET.fromstring(data)
