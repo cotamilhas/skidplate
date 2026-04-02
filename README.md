@@ -206,6 +206,23 @@ When using Docker Compose, the entire project directory is mounted as a volume, 
 - For Docker, use the full network address (not localhost)
 - Check firewall settings allowing container access
 
+### Privileged intents error (Shard ID None)
+
+If you see this error at startup, your bot is requesting privileged intents that are not enabled in the Discord Developer Portal.
+
+This project currently requests:
+- `SERVER MEMBERS INTENT` (`INTENTS.members = True`)
+- `MESSAGE CONTENT INTENT` (`INTENTS.message_content = True`)
+
+Fix steps:
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications/)
+2. Open your application -> Bot
+3. Under **Privileged Gateway Intents**, enable:
+  - **SERVER MEMBERS INTENT**
+  - **MESSAGE CONTENT INTENT**
+4. Save changes
+5. Restart the bot/container
+
 ## Related Projects
 
 - [PLGarage](https://github.com/jackcaver/PLGarage)

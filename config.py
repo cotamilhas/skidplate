@@ -8,7 +8,10 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN", "")
 COMMAND_PREFIX = os.getenv("COMMAND_PREFIX", "!")
 EMBED_COLOR = discord.Color.yellow()
-INTENTS = discord.Intents.all()
+INTENTS = discord.Intents.none()
+INTENTS.guilds = True
+INTENTS.members = True
+INTENTS.message_content = True
 
 # API Configuration
 URL = os.getenv("API_URL", "http://example.com:10050")
