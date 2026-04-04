@@ -21,6 +21,7 @@ def add_top_creation_fields_to_embed(embed: discord.Embed, creations: List[Dict[
     for i, creation in enumerate(creations, start=1):
         name = creation.get("name", "Unknown")
         username = creation.get("username", "Unknown")
+        creation_id = creation.get("id", "?")
         points_today = creation.get("points_today", "0")
         points = creation.get("points", "0")
         rating = creation.get("star_rating", "N/A")
@@ -30,7 +31,7 @@ def add_top_creation_fields_to_embed(embed: discord.Embed, creations: List[Dict[
         rating_stars = rating_to_stars(rating, full_emoji, half_emoji, empty_emoji)
 
         field_value = (
-            f"Creator: **{username}**\n"
+            f"ID: `{creation_id}` | Creator: **{username}**\n"
             f"Points Today: **{points_today}** | Total Points: **{points}**\n"
             f"Rating: **{rating_stars}** | Total Downloads: **{downloads}**\n"
             f"> {short_desc}"

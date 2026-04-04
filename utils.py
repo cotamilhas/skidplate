@@ -303,6 +303,67 @@ class CreationDataFetcher:
             "total": int(pc_root.get("total", 0)),
             "total_pages": int(pc_root.get("total_pages", 1))
         }
+        
+    async def search_creations_by_player(
+        self,
+        username: str,
+        player_creation_type: str = "CHARACTER",
+        per_page: int = 10,
+        page: int = 1,
+        platform: str = "PS3",
+    ) -> Optional[Dict[str, Any]]:
+        url = f"{self.base_url}player_creations/friends_view.xml"
+        params = {
+            "filters[player_creation_type]": player_creation_type,
+            "filters[username]": username,
+            "page": page,
+            "per_page": per_page,
+            "platform": platform,
+            "sort_column": "created_at",
+            "sort_order": "desc",
+        }
+
+        root = await self.xml_fetcher.fetch_xml(url, params=params)
+        if root is None:
+            return None
+
+        pc_root = root.find(".//player_creations")
+        if pc_root is None:
+            debug("player_creations element not found")
+            return None
+
+        creations = []
+        for elem in pc_root.findall("player_creation"):
+            try:
+                cid = elem.attrib.get("id")
+                name = elem.attrib.get("name", "Unknown")
+                rating = elem.attrib.get("star_rating", "N/A")
+                downloads = elem.attrib.get("downloads", "0")
+                views = elem.attrib.get("views", "0")
+                points = elem.attrib.get("points", "0")
+                creation_type = elem.attrib.get("player_creation_type", "Unknown")
+
+                creations.append({
+                    "id": cid,
+                    "name": name,
+                    "username": elem.attrib.get("username", username),
+                    "star_rating": rating,
+                    "downloads": downloads,
+                    "views": views,
+                    "points": points,
+                    "player_creation_type": creation_type
+                })
+            except Exception as e:
+                debug(f"Error parsing player_creation element: {e}")
+                continue
+
+        return {
+            "creations": creations,
+            "page": int(pc_root.get("page", 1)),
+            "per_page": int(pc_root.get("row_end", per_page)) - int(pc_root.get("row_start", 0)),
+            "total": int(pc_root.get("total", 0)),
+            "total_pages": int(pc_root.get("total_pages", 1))
+        }
 
 async def fetch_total_creations(
     session: aiohttp.ClientSession,

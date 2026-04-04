@@ -15,7 +15,7 @@ from ui import (
 
 
 class SearchResultsPaginator(discord.ui.View):
-    def __init__(self, creations: list, total_pages: int, current_page: int, search_query: str, interaction_user_id: int, fetcher, player_creation_type: str = "CHARACTER", platform: str = "PS3"):
+    def __init__(self, creations: list, total_pages: int, current_page: int, search_query: str, interaction_user_id: int, fetcher, player_creation_type: str = "CHARACTER", platform: str = "PS3", search_mode: str = "name"):
         super().__init__(timeout=300)
         self.creations = creations
         self.total_pages = total_pages
@@ -25,6 +25,7 @@ class SearchResultsPaginator(discord.ui.View):
         self.fetcher = fetcher
         self.player_creation_type = player_creation_type
         self.platform = platform
+        self.search_mode = search_mode
         self._loading = False
         self.update_buttons()
 
@@ -71,12 +72,20 @@ class SearchResultsPaginator(discord.ui.View):
             self._loading = False
 
     async def load_and_display_page(self, interaction: discord.Interaction):
-        result = await self.fetcher.search_creations(
-            search_query=self.search_query,
-            player_creation_type=self.player_creation_type,
-            platform=self.platform,
-            page=self.current_page
-        )
+        if self.search_mode == "player":
+            result = await self.fetcher.search_creations_by_player(
+                username=self.search_query,
+                player_creation_type=self.player_creation_type,
+                platform=self.platform,
+                page=self.current_page,
+            )
+        else:
+            result = await self.fetcher.search_creations(
+                search_query=self.search_query,
+                player_creation_type=self.player_creation_type,
+                platform=self.platform,
+                page=self.current_page,
+            )
 
         if result is None or not result.get("creations"):
             await interaction.followup.send("Failed to load page.")
@@ -198,14 +207,14 @@ class Creations(commands.Cog):
     @app_commands.command(name="creation_query", description="Search for creations by name")
     @app_commands.describe(
         search="The name to search for",
-        creation_type="Type of creation (CHARACTER, KART, TRACK)",
+        creation_type="Type of creation (Mods, Karts, Tracks)",
         platform="Platform (PS3, PSV or PSP)"
     )
     @app_commands.choices(
         creation_type=[
-            app_commands.Choice(name="CHARACTER", value="CHARACTER"),
-            app_commands.Choice(name="KART", value="KART"),
-            app_commands.Choice(name="TRACK", value="TRACK"),
+            app_commands.Choice(name="Mods", value="CHARACTER"),
+            app_commands.Choice(name="Karts", value="KART"),
+            app_commands.Choice(name="Tracks", value="TRACK"),
         ],
         platform=[
             app_commands.Choice(name="PS3", value="PS3"),
@@ -260,11 +269,82 @@ class Creations(commands.Cog):
             interaction_user_id=interaction.user.id,
             fetcher=self.creation_fetcher,
             player_creation_type=creation_type.value,
-            platform=platform.value
+            platform=platform.value,
+            search_mode="name"
         )
 
         await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
         
+    @app_commands.command(name="creation_player", description="Search for creations by player name")
+    @app_commands.describe(
+        username="The name of the creator to search for",
+        creation_type="Type of creation (Mods, Karts, Tracks)",
+        platform="Platform (PS3, PSV or PSP)"
+    )
+    @app_commands.choices(
+        creation_type=[
+            app_commands.Choice(name="Mods", value="CHARACTER"),
+            app_commands.Choice(name="Karts", value="KART"),
+            app_commands.Choice(name="Tracks", value="TRACK"),
+        ],
+        platform=[
+            app_commands.Choice(name="PS3", value="PS3"),
+            app_commands.Choice(name="PSP", value="PSP"),
+            app_commands.Choice(name="PSV", value="PSV"),
+        ],
+    )
+    async def creation_player(
+        self,
+        interaction: discord.Interaction,
+        username: str,
+        creation_type: app_commands.Choice[str],
+        platform: app_commands.Choice[str]
+    ):
+        await interaction.response.defer(ephemeral=True)
+        
+        if len(username) < 2:
+            await interaction.followup.send("Username must be at least 2 characters long.")
+            return
 
+        result = await self.creation_fetcher.search_creations_by_player(
+            username=username,
+            player_creation_type=creation_type.value,
+            platform=platform.value,
+            page=1
+        )
+
+        if result is None:
+            await interaction.followup.send("Failed to search creations.")
+            return
+
+        if not result.get("creations"):
+            await interaction.followup.send(f"No creations found for '{username}'.")
+            return
+
+        embed = discord.Embed(
+            title=f"Search Results: {username}",
+            description=f"Page 1/{result['total_pages']} | Total Results: {result['total']}",
+            color=EMBED_COLOR
+        )
+
+        for i, creation in enumerate(result["creations"], start=1):
+            add_search_result_field(embed, creation, i, FULL, HALF, EMPTY)
+
+        embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
+
+        paginator = SearchResultsPaginator(
+            creations=result["creations"],
+            total_pages=result["total_pages"],
+            current_page=1,
+            search_query=username,
+            interaction_user_id=interaction.user.id,
+            fetcher=self.creation_fetcher,
+            player_creation_type=creation_type.value,
+            platform=platform.value,
+            search_mode="player"
+        )
+
+        await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
+        
 async def setup(bot):
     await bot.add_cog(Creations(bot))

@@ -115,7 +115,7 @@ async def on_interaction(interaction: discord.Interaction):
     if not DEBUG_MODE:
         return
 
-    BLACKLIST = {"mod_login"}
+    BLACKLIST = {"mod_login", "mod_set_username", "mod_set_password"}
     
     if interaction.type == discord.InteractionType.application_command:
         if interaction.command.name in BLACKLIST:
