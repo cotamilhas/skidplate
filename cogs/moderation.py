@@ -27,7 +27,7 @@ PERMISSION_LABELS = {
     "ViewGriefReports": "View Grief Reports",
     "ViewPlayerComplaints": "View Player Complaints",
     "ViewPlayerCreationComplaints": "View Creation Complaints",
-    "ChangeUserQuota": "Change User Quota",
+    "ChangeUserQuota": "Change Player Quota",
 }
 
 PERMISSION_ARGUMENT_MAP = {
@@ -869,6 +869,45 @@ class Moderation(commands.Cog):
         
         await interaction.followup.send(embed=embed, ephemeral=True)
         
+    @app_commands.command(name="reset_creation", description="Reset a creation's stats (views, downloads, points, comments, ratings, reviews)")
+    @app_commands.describe(creation_id="Creation ID to reset stats for")
+    @has_moderator_role()
+    async def reset_creation(self, interaction: discord.Interaction, creation_id: int):
+        debug(f"reset_creation called by {interaction.user} - creation_id: {creation_id}")
+        await interaction.response.defer(ephemeral=True)
+
+        user_id = interaction.user.id
+
+        data, error = await self.api_request(
+            "POST",
+            f"/player_creations/{creation_id}/reset_stats",
+            user_id,
+        )
+        debug(f"Reset creation stats result: {data}, error: {error}")
+
+        if error:
+            await self.send_error(interaction, error, ephemeral=True)
+            return
+
+        creation_info = await self.creation_fetcher.get_creation_info(creation_id)
+        creation_name = creation_info.get("name", "Unknown") if creation_info else "Unknown"
+
+        embed = discord.Embed(
+            title="Creation Stats Reset",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="Name", value=f"**{creation_name}**", inline=True)
+        embed.add_field(name="ID", value=f"`{creation_id}`", inline=True)
+
+        preview_bytes = await self.get_creation_preview_bytes(creation_id)
+        if preview_bytes:
+            preview_file = discord.File(BytesIO(preview_bytes), filename="preview.png")
+            embed.set_thumbnail(url="attachment://preview.png")
+            await interaction.followup.send(embed=embed, file=preview_file, ephemeral=True)
+            return
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
     # ===== PLAYER/CREATION REPORTS & COMPLAINTS =====
     @app_commands.command(name="player_complaints", description="View player complaints with pagination")
     @app_commands.describe(page="Page number to open")
@@ -971,34 +1010,20 @@ class Moderation(commands.Cog):
     @app_commands.command(name="mod_set_permissions", description="Update moderator permissions")
     @app_commands.describe(
         username="Moderator username",
-        ban_users="Can ban players",
-        change_creation_status="Can change creation status",
-        change_user_settings="Can change user settings",
-        view_grief_reports="Can view grief reports",
-        view_player_complaints="Can view player complaints",
-        view_player_creation_complaints="Can view creation complaints",
-        manage_moderators="Can manage moderators",
-        manage_announcements="Can manage announcements",
-        manage_hotlap="Can manage hotlap",
-        manage_system_events="Can manage system events",
-        change_user_quota="Can change user quota"
+        permission="Permission to update",
+        enabled="True to grant, False to revoke"
     )
+    @app_commands.choices(permission=[
+        app_commands.Choice(name=label, value=key)
+        for key, label in PERMISSION_LABELS.items()
+    ])
     @has_moderator_role()
     async def mod_set_permissions(
         self,
         interaction: discord.Interaction,
         username: str,
-        ban_users: Optional[bool] = None,
-        change_creation_status: Optional[bool] = None,
-        change_user_settings: Optional[bool] = None,
-        view_grief_reports: Optional[bool] = None,
-        view_player_complaints: Optional[bool] = None,
-        view_player_creation_complaints: Optional[bool] = None,
-        manage_moderators: Optional[bool] = None,
-        manage_announcements: Optional[bool] = None,
-        manage_hotlap: Optional[bool] = None,
-        manage_system_events: Optional[bool] = None,
-        change_user_quota: Optional[bool] = None
+        permission: app_commands.Choice[str],
+        enabled: bool,
     ):
         debug(f"mod_set_permissions called by {interaction.user} for moderator {username}")
         await interaction.response.defer(ephemeral=True)
@@ -1014,36 +1039,13 @@ class Moderation(commands.Cog):
             await self.send_error(interaction, f"Moderator **{username}** not found", ephemeral=True)
             return
 
-        requested_updates = {
-            "ban_users": ban_users,
-            "change_creation_status": change_creation_status,
-            "change_user_settings": change_user_settings,
-            "view_grief_reports": view_grief_reports,
-            "view_player_complaints": view_player_complaints,
-            "view_player_creation_complaints": view_player_creation_complaints,
-            "manage_moderators": manage_moderators,
-            "manage_announcements": manage_announcements,
-            "manage_hotlap": manage_hotlap,
-            "manage_system_events": manage_system_events,
-            "change_user_quota": change_user_quota,
-        }
-
-        if all(value is None for value in requested_updates.values()):
-            embed = discord.Embed(
-                title="No Changes",
-                description="Specify at least one permission to update.",
-                color=discord.Color.yellow()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-
         mod_id = mod_data.get("ID")
 
-        permissions_params = {}
-        for api_field, argument_name in PERMISSION_ARGUMENT_MAP.items():
-            requested_value = requested_updates[argument_name]
-            effective_value = mod_data.get(api_field, False) if requested_value is None else requested_value
-            permissions_params[api_field] = str(bool(effective_value)).lower()
+        permissions_params = {
+            api_field: str(bool(mod_data.get(api_field, False))).lower()
+            for api_field in PERMISSION_ARGUMENT_MAP
+        }
+        permissions_params[permission.value] = str(enabled).lower()
 
         data, error = await self.api_request(
             "POST",
@@ -1055,7 +1057,13 @@ class Moderation(commands.Cog):
             await self.send_error(interaction, error, ephemeral=True)
             return
 
-        await self.send_success(interaction, f"Permissions updated for moderator **{username}**", ephemeral=True)
+        permission_label = PERMISSION_LABELS.get(permission.value, permission.value)
+        action = "granted" if enabled else "revoked"
+        await self.send_success(
+            interaction,
+            f"{permission_label} {action} for moderator **{username}**",
+            ephemeral=True,
+        )
 
     @app_commands.command(name="mod_delete", description="Delete a moderator")
     @app_commands.describe(username="Moderator username")
@@ -1080,6 +1088,13 @@ class Moderation(commands.Cog):
         data, error = await self.api_request("DELETE", f"/moderators/{mod_id}", user_id)
         
         if error:
+            if error == "error_cannot_remove_yourself":
+                await self.send_error(
+                    interaction,
+                    "You cannot delete your own moderator account.",
+                    ephemeral=True,
+                )
+                return
             await self.send_error(interaction, error, ephemeral=True)
             return
 
