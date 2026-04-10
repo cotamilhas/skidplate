@@ -15,12 +15,10 @@ class ModerationAPIHelper:
         self,
         session: aiohttp.ClientSession,
         api_base: str,
-        logs_dir: str,
         user_tokens: Dict[int, str]
     ):
         self.session = session
         self.api_base = api_base
-        self.logs_dir = logs_dir
         self.user_tokens = user_tokens
 
 
@@ -73,6 +71,4 @@ class ModerationAPIHelper:
                     return text, None
         except Exception as e:
             debug(f"API Request exception: {str(e)}")
-            if DEBUG_MODE:
-                self.save_api_response(endpoint, method, None, 0, f"Connection error: {str(e)}")
             return None, f"Connection error: {str(e)}"
