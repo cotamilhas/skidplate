@@ -603,7 +603,7 @@ class BannedCreationsPaginator(discord.ui.View):
             color=EMBED_COLOR,
         )
         if self.total_items is not None:
-            embed.set_footer(text=f"Total banned creations: {self.total_items}")
+            embed.set_footer(text=f"Total: {self.total_items}")
 
         if not self.items:
             embed.description += "\nNo banned creations found."
