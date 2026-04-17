@@ -56,7 +56,7 @@ class Leaderboard(commands.Cog):
             "game_type": "ONLINE_HOT_SEAT_RACE",
             "platform": "PS3",
             "page": 1,
-            "per_page": 100,
+            "per_page": 100
         }
 
         debug(f"Fetching hotlap leaderboard: {leaderboard_url} params={leaderboard_params}")
@@ -87,7 +87,7 @@ class Leaderboard(commands.Cog):
                 "game_type": "ONLINE_HOT_SEAT_RACE",
                 "platform": "PS3",
                 "page": page_num,
-                "per_page": 100,
+                "per_page": 100
             }
 
             async with self.session.get(leaderboard_url, params=page_params) as resp:
@@ -143,7 +143,7 @@ class Leaderboard(commands.Cog):
                         creation_info.get("star_rating", "0"),
                         FULL,
                         HALF,
-                        EMPTY,
+                        EMPTY
                     )
             except (ValueError, TypeError):
                 debug(f"Invalid track index for rating lookup: {track_idx}")

@@ -9,7 +9,7 @@ def add_player_fields_to_embed(
     show_win_rate: bool,
     full_emoji: str,
     half_emoji: str,
-    empty_emoji: str,
+    empty_emoji: str
 ):
     rating_stars = rating_to_stars(info.get("star_rating", "0"), full_emoji, half_emoji, empty_emoji)
 
@@ -37,3 +37,76 @@ def add_player_fields_to_embed(
 
     if info.get("created_at"):
         embed.add_field(name="Created At", value=to_discord_timestamp(info["created_at"]), inline=False)
+
+
+def build_player_complaints_embed(
+    *,
+    items: list[dict],
+    current_page: int,
+    per_page: int,
+    total_pages: int | None,
+    reporter_names: list[str],
+    reported_names: list[str]
+) -> discord.Embed:
+    total_pages_text = str(total_pages) if total_pages is not None else "?"
+    embed = discord.Embed(
+        title="Player Complaints",
+        description=f"Page {current_page}/{total_pages_text}",
+        color=discord.Color.yellow()
+    )
+
+    start_index = (current_page - 1) * per_page
+    for index, (item, reporter_name, reported_name) in enumerate(
+        zip(items, reporter_names, reported_names),
+        start=1
+    ):
+        reporter_id = item.get("UserId")
+        reported_id = item.get("PlayerId")
+        reason = item.get("Reason", "UNKNOWN")
+        embed.add_field(
+            name=f"Complaint #{start_index + index}",
+            value=(
+                f"Reporter: **{reporter_name}** (`{reporter_id}`)\n"
+                f"Reported: **{reported_name}** (`{reported_id}`)\n"
+                f"Reason: **{reason}**"
+            ),
+            inline=False
+        )
+
+    if not items:
+        embed.description += "\nNo complaints found."
+
+    return embed
+
+
+def build_banned_players_embed(
+    *,
+    items: list[dict],
+    current_page: int,
+    total_pages: int | None,
+    total_items: int | None
+) -> discord.Embed:
+    total_pages_text = str(total_pages) if total_pages is not None else "?"
+    embed = discord.Embed(
+        title="Banned Players",
+        description=f"Page {current_page}/{total_pages_text}",
+        color=discord.Color.yellow()
+    )
+
+    if total_items is not None:
+        embed.set_footer(text=f"Total: {total_items}")
+
+    if not items:
+        embed.description += "\nNo banned players found on this page."
+        return embed
+
+    for user in items:
+        uid = user.get("ID", "?")
+        username = user.get("Username", "Unknown")
+        embed.add_field(
+            name=f"**{username}**",
+            value=f"ID: `{uid}`",
+            inline=False
+        )
+
+    return embed

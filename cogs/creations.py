@@ -5,107 +5,86 @@ import aiohttp
 from config import EMBED_COLOR, URL, FULL, HALF, EMPTY
 from utils import (
     create_basic_embed,
-    CreationDataFetcher,
+    CreationDataFetcher
 )
 from ui import (
     add_top_creation_fields_to_embed,
     add_creation_fields_to_embed,
-    add_search_result_field,
+    build_creation_search_results_embed
 )
+from ui.pagination import BasePaginatorView
 
 
-class SearchResultsPaginator(discord.ui.View):
-    def __init__(self, creations: list, total_pages: int, current_page: int, search_query: str, interaction_user_id: int, fetcher, player_creation_type: str = "CHARACTER", platform: str = "PS3", search_mode: str = "name"):
-        super().__init__(timeout=300)
-        self.creations = creations
-        self.total_pages = total_pages
-        self.current_page = current_page
+class SearchResultsPaginator(BasePaginatorView):
+    page_modal_title = "Go to Search Results Page"
+
+    def __init__(
+        self,
+        search_query: str,
+        interaction_user_id: int,
+        requester_name: str,
+        requester_avatar_url: str | None,
+        fetcher,
+        player_creation_type: str = "CHARACTER",
+        platform: str = "PS3",
+        search_mode: str = "name",
+        start_page: int = 1
+    ):
+        super().__init__(interaction_user_id, per_page=10, start_page=start_page)
         self.search_query = search_query
-        self.interaction_user_id = interaction_user_id
+        self.requester_name = requester_name
+        self.requester_avatar_url = requester_avatar_url
         self.fetcher = fetcher
         self.player_creation_type = player_creation_type
         self.platform = platform
         self.search_mode = search_mode
-        self._loading = False
-        self.update_buttons()
 
-    def update_buttons(self):
-        self.prev_page.disabled = self.current_page <= 1
-        self.next_page.disabled = self.current_page >= self.total_pages
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.interaction_user_id:
-            await interaction.response.send_message("You are not the one who initiated this search.", ephemeral=True)
-            return False
-        return True
-
-    @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.primary)
-    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self._loading:
-            await interaction.response.defer()
-            return
-        await interaction.response.defer()
-        self._loading = True
-        self.current_page -= 1
-        self.prev_page.disabled = True
-        self.next_page.disabled = True
-        await interaction.followup.edit_message(interaction.message.id, view=self)
-        try:
-            await self.load_and_display_page(interaction)
-        finally:
-            self._loading = False
-
-    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.primary)
-    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self._loading:
-            await interaction.response.defer()
-            return
-        await interaction.response.defer()
-        self._loading = True
-        self.current_page += 1
-        self.prev_page.disabled = True
-        self.next_page.disabled = True
-        await interaction.followup.edit_message(interaction.message.id, view=self)
-        try:
-            await self.load_and_display_page(interaction)
-        finally:
-            self._loading = False
-
-    async def load_and_display_page(self, interaction: discord.Interaction):
+    async def fetch_page(self, page: int):
         if self.search_mode == "player":
             result = await self.fetcher.search_creations_by_player(
                 username=self.search_query,
                 player_creation_type=self.player_creation_type,
                 platform=self.platform,
-                page=self.current_page,
+                page=page
             )
         else:
             result = await self.fetcher.search_creations(
                 search_query=self.search_query,
                 player_creation_type=self.player_creation_type,
                 platform=self.platform,
-                page=self.current_page,
+                page=page
             )
 
         if result is None or not result.get("creations"):
-            await interaction.followup.send("Failed to load page.")
-            return
+            return None, None, None, "Failed to load page."
 
-        self.creations = result["creations"]
-        self.total_pages = result["total_pages"]
-        self.update_buttons()
+        items = result.get("creations", [])
+        total_pages = result.get("total_pages")
+        total = result.get("total")
 
-        embed = discord.Embed(
-            title=f"Search Results: {self.search_query}",
-            description=f"Page {self.current_page}/{self.total_pages} | Total Results: {result['total']}",
-            color=EMBED_COLOR
+        if not isinstance(items, list):
+            return None, None, None, "Unexpected search response format."
+
+        if not isinstance(total_pages, int):
+            total_pages = None
+        if not isinstance(total, int):
+            total = len(items)
+
+        return items, total, total_pages, None
+
+    async def build_embed(self) -> discord.Embed:
+        return build_creation_search_results_embed(
+            search_query=self.search_query,
+            current_page=self.current_page,
+            total_pages=self.total_pages or 1,
+            total_results=self.total_items or len(self.items),
+            creations=self.items,
+            full_emoji=FULL,
+            half_emoji=HALF,
+            empty_emoji=EMPTY,
+            footer_text=f"Requested by {self.requester_name}",
+            footer_icon_url=self.requester_avatar_url
         )
-
-        for i, creation in enumerate(self.creations, start=1):
-            add_search_result_field(embed, creation, i, FULL, HALF, EMPTY)
-
-        embed.set_footer(text="Use the buttons to navigate pages")
-        await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
 
 class Creations(commands.Cog):
@@ -137,44 +116,44 @@ class Creations(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="topmods", description="Top 3 most downloaded mods today (PS3).")
+    @app_commands.command(name="topmods", description="Top 5 most downloaded mods today (PS3).")
     async def topmods(self, interaction: discord.Interaction):
         await interaction.response.defer()
         creations = await self.creation_fetcher.fetch_creations(
             player_creation_type="CHARACTER", 
-            per_page=3, 
+            per_page=5, 
             page=1
         )
         if creations is None:
             await interaction.followup.send("Failed to fetch top mods.")
             return
-        await self.send_top_embed(interaction, creations, title="Top Mods — Top 3")
+        await self.send_top_embed(interaction, creations, title="Top Mods — Top 5")
 
-    @app_commands.command(name="topkarts", description="Top 3 most downloaded karts today (PS3).")
+    @app_commands.command(name="topkarts", description="Top 5 most downloaded karts today (PS3).")
     async def topkarts(self, interaction: discord.Interaction):
         await interaction.response.defer()
         creations = await self.creation_fetcher.fetch_creations(
             player_creation_type="KART", 
-            per_page=3, 
+            per_page=5, 
             page=1
         )
         if creations is None:
             await interaction.followup.send("Failed to fetch top karts.")
             return
-        await self.send_top_embed(interaction, creations, title="Top Karts — Top 3")
+        await self.send_top_embed(interaction, creations, title="Top Karts — Top 5")
 
-    @app_commands.command(name="toptracks", description="Top 3 most downloaded tracks today (PS3).")
+    @app_commands.command(name="toptracks", description="Top 5 most downloaded tracks today (PS3).")
     async def toptracks(self, interaction: discord.Interaction):
         await interaction.response.defer()
         creations = await self.creation_fetcher.fetch_creations(
             player_creation_type="TRACK", 
-            per_page=3, 
+            per_page=5, 
             page=1
         )
         if creations is None:
             await interaction.followup.send("Failed to fetch top tracks.")
             return
-        await self.send_top_embed(interaction, creations, title="Top Tracks — Top 3")
+        await self.send_top_embed(interaction, creations, title="Top Tracks — Top 5")
 
     @app_commands.command(name="creation_id", description="Search for a creation by ID")
     @app_commands.describe(id="The creation ID to search for")
@@ -214,12 +193,12 @@ class Creations(commands.Cog):
         creation_type=[
             app_commands.Choice(name="Mods", value="CHARACTER"),
             app_commands.Choice(name="Karts", value="KART"),
-            app_commands.Choice(name="Tracks", value="TRACK"),
+            app_commands.Choice(name="Tracks", value="TRACK")
         ],
         platform=[
             app_commands.Choice(name="PS3", value="PS3"),
             app_commands.Choice(name="PSP", value="PSP"),
-            app_commands.Choice(name="PSV", value="PSV"),
+            app_commands.Choice(name="PSV", value="PSV")
         ],
     )
     async def creation_query(
@@ -250,30 +229,25 @@ class Creations(commands.Cog):
             await interaction.followup.send(f"No creations found for '{search}'.")
             return
 
-        embed = discord.Embed(
-            title=f"Search Results: {search}",
-            description=f"Page 1/{result['total_pages']} | Total Results: {result['total']}",
-            color=EMBED_COLOR
-        )
-
-        for i, creation in enumerate(result["creations"], start=1):
-            add_search_result_field(embed, creation, i, FULL, HALF, EMPTY)
-
-        embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
-
         paginator = SearchResultsPaginator(
-            creations=result["creations"],
-            total_pages=result["total_pages"],
-            current_page=1,
             search_query=search,
             interaction_user_id=interaction.user.id,
+            requester_name=interaction.user.name,
+            requester_avatar_url=interaction.user.display_avatar.url,
             fetcher=self.creation_fetcher,
             player_creation_type=creation_type.value,
             platform=platform.value,
-            search_mode="name"
+            search_mode="name",
+            start_page=1
         )
 
-        await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
+        embed, error = await paginator.initialize()
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
+            return
+
+        sent_message = await interaction.followup.send(embed=embed, view=paginator, ephemeral=True, wait=True)
+        paginator.message = sent_message
         
     @app_commands.command(name="creation_player", description="Search for creations by player name")
     @app_commands.describe(
@@ -285,12 +259,12 @@ class Creations(commands.Cog):
         creation_type=[
             app_commands.Choice(name="Mods", value="CHARACTER"),
             app_commands.Choice(name="Karts", value="KART"),
-            app_commands.Choice(name="Tracks", value="TRACK"),
+            app_commands.Choice(name="Tracks", value="TRACK")
         ],
         platform=[
             app_commands.Choice(name="PS3", value="PS3"),
             app_commands.Choice(name="PSP", value="PSP"),
-            app_commands.Choice(name="PSV", value="PSV"),
+            app_commands.Choice(name="PSV", value="PSV")
         ],
     )
     async def creation_player(
@@ -321,30 +295,25 @@ class Creations(commands.Cog):
             await interaction.followup.send(f"No creations found for '{username}'.")
             return
 
-        embed = discord.Embed(
-            title=f"Search Results: {username}",
-            description=f"Page 1/{result['total_pages']} | Total Results: {result['total']}",
-            color=EMBED_COLOR
-        )
-
-        for i, creation in enumerate(result["creations"], start=1):
-            add_search_result_field(embed, creation, i, FULL, HALF, EMPTY)
-
-        embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
-
         paginator = SearchResultsPaginator(
-            creations=result["creations"],
-            total_pages=result["total_pages"],
-            current_page=1,
             search_query=username,
             interaction_user_id=interaction.user.id,
+            requester_name=interaction.user.name,
+            requester_avatar_url=interaction.user.display_avatar.url,
             fetcher=self.creation_fetcher,
             player_creation_type=creation_type.value,
             platform=platform.value,
-            search_mode="player"
+            search_mode="player",
+            start_page=1
         )
 
-        await interaction.followup.send(embed=embed, view=paginator, ephemeral=True)
+        embed, error = await paginator.initialize()
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
+            return
+
+        sent_message = await interaction.followup.send(embed=embed, view=paginator, ephemeral=True, wait=True)
+        paginator.message = sent_message
         
 async def setup(bot):
     await bot.add_cog(Creations(bot))

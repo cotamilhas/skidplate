@@ -12,6 +12,20 @@ from config import EMBED_COLOR, URL, DEBUG_MODE
 from clients.xml_client import XMLFetcher
 from clients.moderation_api import ModerationAPIHelper
 
+
+CREATION_ID_KEYS = (
+    "creation",
+    "creation_id",
+    "id",
+    "track",
+    "track_id",
+    "ID",
+    "CreationID",
+    "TrackID"
+)
+
+CREATION_TYPE_KEYS = ("player_creation_type", "creation_type", "type", "Type")
+
 def debug(msg: str):
     from config import DEBUG_MODE
     if DEBUG_MODE:
@@ -159,7 +173,7 @@ class CreationDataFetcher:
         page: int = 1,
         sort_column: str = "points_today",
         sort_order: str = "desc",
-        platform: str = "PS3",
+        platform: str = "PS3"
     ) -> Optional[List[Dict[str, Any]]]:
         url = f"{self.base_url}player_creations.xml"
         params = {
@@ -168,7 +182,7 @@ class CreationDataFetcher:
             "sort_column": sort_column,
             "player_creation_type": player_creation_type,
             "platform": platform,
-            "sort_order": sort_order,
+            "sort_order": sort_order
         }
 
         root = await self.xml_fetcher.fetch_xml(url, params=params)
@@ -250,7 +264,7 @@ class CreationDataFetcher:
         player_creation_type: str = "CHARACTER",
         per_page: int = 10,
         page: int = 1,
-        platform: str = "PS3",
+        platform: str = "PS3"
     ) -> Optional[Dict[str, Any]]:
         url = f"{self.base_url}player_creations/search.xml"
         params = {
@@ -258,7 +272,7 @@ class CreationDataFetcher:
             "per_page": per_page,
             "platform": platform,
             "player_creation_type": player_creation_type,
-            "search": search_query,
+            "search": search_query
         }
 
         root = await self.xml_fetcher.fetch_xml(url, params=params)
@@ -310,7 +324,7 @@ class CreationDataFetcher:
         player_creation_type: str = "CHARACTER",
         per_page: int = 10,
         page: int = 1,
-        platform: str = "PS3",
+        platform: str = "PS3"
     ) -> Optional[Dict[str, Any]]:
         url = f"{self.base_url}player_creations/friends_view.xml"
         params = {
@@ -320,7 +334,7 @@ class CreationDataFetcher:
             "per_page": per_page,
             "platform": platform,
             "sort_column": "created_at",
-            "sort_order": "desc",
+            "sort_order": "desc"
         }
 
         root = await self.xml_fetcher.fetch_xml(url, params=params)
@@ -370,14 +384,14 @@ async def fetch_total_creations(
     name: str,
     base_url: str,
     player_creation_type: str,
-    platform: str = "PS3",
+    platform: str = "PS3"
 ) -> str:
     url = f"{base_url}player_creations.xml"
     params = {
         "page": 1,
         "per_page": 0,
         "player_creation_type": player_creation_type,
-        "platform": platform,
+        "platform": platform
     }
     debug(f"GET {name}: {url} params={params}")
 
@@ -412,7 +426,6 @@ async def fetch_total_creations(
     debug(f"{name} total parsed: {total}")
     return total
 
-
 async def fetch_online_players(session: aiohttp.ClientSession, base_url: str) -> str:
     url = f"{base_url}api/playercounts/sessioncount"
     debug(f"GET Online Players: {url}")
@@ -441,12 +454,11 @@ async def fetch_online_players(session: aiohttp.ClientSession, base_url: str) ->
 def create_basic_embed(title: str, color: discord.Color) -> discord.Embed:
     return discord.Embed(title=title, color=color)
 
-
 async def prepare_player_avatar_attachment(
     session: aiohttp.ClientSession,
     avatar_url: Optional[str],
     player_id: str,
-    fallback_path: str = "img/secondary.png",
+    fallback_path: str = "img/secondary.png"
 ) -> tuple[discord.File, str, Optional[str]]:
     if avatar_url:
         try:
@@ -475,3 +487,48 @@ def cleanup_temp_file(path: Optional[str]):
             os.remove(path)
     except Exception as e:
         debug(f"Failed to clean up temp file {path}: {e}")
+
+def extract_creation_id(payload: Any) -> Optional[int]:
+    if isinstance(payload, bool):
+        return None
+
+    if isinstance(payload, int):
+        return payload if payload > 0 else None
+
+    if isinstance(payload, str):
+        value = payload.strip()
+        if value.isdigit():
+            parsed = int(value)
+            return parsed if parsed > 0 else None
+        return None
+
+    if isinstance(payload, dict):
+        for key in CREATION_ID_KEYS:
+            parsed = extract_creation_id(payload.get(key))
+            if parsed:
+                return parsed
+
+    return None
+
+def extract_creation_type(creation_info: Dict[str, Any]) -> Optional[str]:
+    for key in CREATION_TYPE_KEYS:
+        value = creation_info.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().upper()
+    return None
+
+def is_not_a_track_response(payload: Any) -> bool:
+    return isinstance(payload, str) and payload.strip().lower() == "error_not_a_track"
+
+def parse_hotlap_queue_payload(data: Any) -> tuple[List[Any], Optional[int]]:
+    if isinstance(data, list):
+        return data, len(data)
+
+    if isinstance(data, dict):
+        entries = data.get("Page")
+        queue_entries = entries if isinstance(entries, list) else []
+        total_value = data.get("Total")
+        total_entries = total_value if isinstance(total_value, int) else None
+        return queue_entries, total_entries
+
+    return [], None

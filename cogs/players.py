@@ -43,7 +43,7 @@ class Players(commands.Cog):
         avatar_file, avatar_image_url, temp_avatar_path = await prepare_player_avatar_attachment(
             self.session,
             avatar_url,
-            player_id,
+            player_id
         )
         files = [avatar_file]
         embed.set_image(url=avatar_image_url)

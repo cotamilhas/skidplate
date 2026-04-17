@@ -3,6 +3,18 @@ from typing import Any, Dict, List
 from utils import rating_to_stars, format_time
 
 
+CREATION_TYPE_LABELS = {
+    0: "Photo",
+    1: "Planet",
+    2: "Track",
+    3: "Item",
+    4: "Story",
+    5: "Deleted",
+    6: "Mod",
+    7: "Kart"
+}
+
+
 def trim_text(value: str, max_len: int = 250, fallback: str = "No description provided.") -> str:
     if not value:
         return fallback
@@ -97,7 +109,118 @@ def add_search_result_field(embed: discord.Embed, creation: Dict[str, str], inde
     )
 
     embed.add_field(
-        name=f"#{index} {name}",
+        name=f"#{index} | {name}",
         value=field_value,
         inline=False
     )
+
+
+def build_creation_search_results_embed(
+    *,
+    search_query: str,
+    current_page: int,
+    total_pages: int,
+    total_results: int,
+    creations: list[dict],
+    full_emoji: str,
+    half_emoji: str,
+    empty_emoji: str,
+    footer_text: str,
+    footer_icon_url: str | None = None
+) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"Search Results: {search_query}",
+        description=f"Page {current_page}/{total_pages} | Total Results: {total_results}",
+        color=discord.Color.yellow()
+    )
+
+    for index, creation in enumerate(creations, start=1):
+        add_search_result_field(embed, creation, index, full_emoji, half_emoji, empty_emoji)
+
+    if footer_icon_url:
+        embed.set_footer(text=footer_text, icon_url=footer_icon_url)
+    else:
+        embed.set_footer(text=footer_text)
+    return embed
+
+
+def build_creation_complaints_embed(
+    *,
+    items: list[dict],
+    current_page: int,
+    per_page: int,
+    total_pages: int | None,
+    reporter_names: list[str],
+    creator_names: list[str],
+    creation_names: list[str]
+) -> discord.Embed:
+    total_pages_text = str(total_pages) if total_pages is not None else "?"
+    embed = discord.Embed(
+        title="Creation Complaints",
+        description=f"Page {current_page}/{total_pages_text}",
+        color=discord.Color.yellow()
+    )
+
+    start_index = (current_page - 1) * per_page
+    for index, (item, reporter_name, creator_name, creation_name) in enumerate(
+        zip(items, reporter_names, creator_names, creation_names),
+        start=1,
+    ):
+        reporter_id = item.get("UserId")
+        creator_id = item.get("PlayerId")
+        creation_id = item.get("PlayerCreationId")
+        reason = item.get("Reason", "UNKNOWN")
+        embed.add_field(
+            name=f"Complaint #{start_index + index}",
+            value=(
+                f"Reporter: **{reporter_name}** (`{reporter_id}`)\n"
+                f"Creator: **{creator_name}** (`{creator_id}`)\n"
+                f"Creation: **{creation_name}** (`{creation_id}`)\n"
+                f"Reason: **{reason}**"
+            ),
+            inline=False
+        )
+
+    if not items:
+        embed.description += "\nNo complaints found."
+
+    return embed
+
+
+def build_banned_creations_embed(
+    *,
+    items: list[dict],
+    current_page: int,
+    total_pages: int | None,
+    total_items: int | None,
+    player_names: list[str]
+) -> discord.Embed:
+    total_pages_text = str(total_pages) if total_pages is not None else "?"
+    embed = discord.Embed(
+        title="Banned Creations",
+        description=f"Page {current_page}/{total_pages_text}",
+        color=discord.Color.yellow()
+    )
+
+    if total_items is not None:
+        embed.set_footer(text=f"Total: {total_items}")
+
+    if not items:
+        embed.description += "\nNo banned creations found."
+        return embed
+
+    for creation, player_name in zip(items, player_names):
+        cid = creation.get("ID", "?")
+        name = creation.get("Name", "Unknown")
+        ctype = creation.get("Type", "?")
+        ctype_label = CREATION_TYPE_LABELS.get(ctype, f"Unknown ({ctype})")
+
+        player_id = creation.get("PlayerID")
+        player_id_text = player_id if player_id is not None else "?"
+        embed.add_field(
+            name=name,
+            value=f"ID: `{cid}`\nType: `{ctype_label}`\nPlayer: `{player_name}` (`{player_id_text}`)",
+            inline=False
+        )
+
+    return embed

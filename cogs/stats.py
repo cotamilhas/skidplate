@@ -22,7 +22,7 @@ class Stats(commands.Cog):
         creation_types = {
             "Mods": "CHARACTER",
             "Karts": "KART",
-            "Tracks": "TRACK",
+            "Tracks": "TRACK"
         }
 
         stats = {}
