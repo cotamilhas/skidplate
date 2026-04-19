@@ -168,7 +168,6 @@ skidplate/
 │   ├── players.py
 │   └── stats.py
 ├── img/                 Bot image assets
-├── api_logs/            Moderation API logs (when debug is enabled)
 ├── requirements.txt     Python dependencies
 ├── Dockerfile           Container configuration
 ├── docker-compose.yml   Compose configuration
