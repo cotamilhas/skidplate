@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import aiohttp
 from config import EMBED_COLOR, URL
-from utils import debug, fetch_total_creations, fetch_online_players
+from utils import debug, fetch_total_creations, fetch_online_players, fetch_total_lbpk_tracks
 
 
 class Stats(commands.Cog):
@@ -31,6 +31,7 @@ class Stats(commands.Cog):
             stats[name] = await fetch_total_creations(self.session, name, URL, creation_type)
 
         online_players = await fetch_online_players(self.session, URL)
+        lbpk_tracks = await fetch_total_lbpk_tracks(self.session, URL)
 
         debug(f"Final stats raw: {stats}")
         debug(f"Online players final value: {online_players}")
@@ -38,7 +39,7 @@ class Stats(commands.Cog):
         try:
             total_mods = int(stats.get("Mods", "0"))
             total_karts = int(stats.get("Karts", "0"))
-            total_tracks = int(stats.get("Tracks", "0"))
+            mnr_tracks = int(stats.get("Tracks", "0"))
             total_creations = total_mods + total_karts + total_tracks
             debug(f"Totals calculated: {total_creations}")
         except Exception as e:
@@ -51,7 +52,7 @@ class Stats(commands.Cog):
         )
 
         embed.set_thumbnail(url=self.bot.user.display_avatar.url)
-
+        total_tracks = mnr_tracks + lbpk_tracks
         embed.add_field(name="Players Online", value=online_players, inline=False)
         embed.add_field(name="Total Creations", value=total_creations, inline=False)
         embed.add_field(name="Total Mods", value=total_mods, inline=True)
