@@ -26,7 +26,7 @@ def trim_text(value: str, max_len: int = 250, fallback: str = "No description pr
     return value if len(value) <= max_len else value[:max_len].rstrip() + "..."
 
 
-def add_top_creation_fields_to_embed(embed: discord.Embed, creations: List[Dict[str, Any]], full_emoji: str, half_emoji: str, empty_emoji: str):
+def add_top_creation_fields_to_embed(embed: discord.Embed, creations: List[Dict[str, Any]], full_emoji: str, half_emoji: str, empty_emoji: str, show_hearts: bool = False):
     if creations and creations[0].get("thumbnail"):
         embed.set_thumbnail(url=creations[0]["thumbnail"])
 
@@ -38,6 +38,7 @@ def add_top_creation_fields_to_embed(embed: discord.Embed, creations: List[Dict[
         points = creation.get("points", "0")
         rating = creation.get("star_rating", "N/A")
         downloads = creation.get("downloads", "0")
+        hearts = creation.get("hearts", "0")
         short_desc = trim_text(creation.get("description", ""))
 
         rating_stars = rating_to_stars(rating, full_emoji, half_emoji, empty_emoji)
@@ -45,8 +46,9 @@ def add_top_creation_fields_to_embed(embed: discord.Embed, creations: List[Dict[
         field_value = (
             f"ID: `{creation_id}` | Creator: **{username}**\n"
             f"Points Today: **{points_today}** | Total Points: **{points}**\n"
-            f"Rating: **{rating_stars}** | Total Downloads: **{downloads}**\n"
-            f"> {short_desc}"
+            f"Rating: **{rating_stars}** | Total Downloads: **{downloads}**"
+            + (f" | Hearts: **{hearts}**" if show_hearts else "")
+            + f"\n> {short_desc}"
         )
 
         embed.add_field(
@@ -91,7 +93,7 @@ def add_creation_fields_to_embed(embed: discord.Embed, info: Dict[str, str], ful
     embed.add_field(name="Longest Air Time", value=f"**{info.get('longest_hang_time', '0')}**", inline=True)
 
 
-def add_search_result_field(embed: discord.Embed, creation: Dict[str, str], index: int, full_emoji: str, half_emoji: str, empty_emoji: str):
+def add_search_result_field(embed: discord.Embed, creation: Dict[str, str], index: int, full_emoji: str, half_emoji: str, empty_emoji: str, show_hearts: bool = False):
     name = creation.get("name", "Unknown")
     username = creation.get("username", "Unknown")
     creation_id = creation.get("id", "?")
@@ -99,6 +101,7 @@ def add_search_result_field(embed: discord.Embed, creation: Dict[str, str], inde
     downloads = creation.get("downloads", "0")
     views = creation.get("views", "0")
     points = creation.get("points", "0")
+    hearts = creation.get("hearts", "0")
 
     rating_stars = rating_to_stars(rating, full_emoji, half_emoji, empty_emoji)
 
@@ -106,6 +109,7 @@ def add_search_result_field(embed: discord.Embed, creation: Dict[str, str], inde
         f"ID: `{creation_id}` | Creator: **{username}**\n"
         f"Rating: **{rating_stars}** | Downloads: **{downloads}** | Views: **{views}**\n"
         f"Points: **{points}**"
+        + (f" | Hearts: **{hearts}**" if show_hearts else "")
     )
 
     embed.add_field(
@@ -126,7 +130,8 @@ def build_creation_search_results_embed(
     half_emoji: str,
     empty_emoji: str,
     footer_text: str,
-    footer_icon_url: str | None = None
+    footer_icon_url: str | None = None,
+    show_hearts: bool = False
 ) -> discord.Embed:
     embed = discord.Embed(
         title=f"Search Results: {search_query}",
@@ -135,7 +140,7 @@ def build_creation_search_results_embed(
     )
 
     for index, creation in enumerate(creations, start=1):
-        add_search_result_field(embed, creation, index, full_emoji, half_emoji, empty_emoji)
+        add_search_result_field(embed, creation, index, full_emoji, half_emoji, empty_emoji, show_hearts=show_hearts)
 
     if footer_icon_url:
         embed.set_footer(text=footer_text, icon_url=footer_icon_url)

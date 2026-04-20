@@ -264,16 +264,28 @@ class CreationDataFetcher:
         player_creation_type: str = "CHARACTER",
         per_page: int = 10,
         page: int = 1,
-        platform: str = "PS3"
+        platform: str = "PS3",
+        game: str = None
     ) -> Optional[Dict[str, Any]]:
-        url = f"{self.base_url}player_creations/search.xml"
-        params = {
-            "page": page,
-            "per_page": per_page,
-            "platform": platform,
-            "player_creation_type": player_creation_type,
-            "search": search_query
-        }
+        if game == "LBPK":
+            url = f"{self.base_url}tracks.xml"
+            params = {
+                "page": page,
+                "per_page": per_page,
+                "platform": "PS3",
+                "sort_column": "created_at",
+                "sort_order": "desc",
+                "keyword": search_query
+            }
+        else:
+            url = f"{self.base_url}player_creations/search.xml"
+            params = {
+                "page": page,
+                "per_page": per_page,
+                "platform": platform,
+                "player_creation_type": player_creation_type,
+                "search": search_query
+            }
 
         root = await self.xml_fetcher.fetch_xml(url, params=params)
         if root is None:
@@ -287,24 +299,16 @@ class CreationDataFetcher:
         creations = []
         for elem in pc_root.findall("player_creation"):
             try:
-                cid = elem.attrib.get("id")
-                name = elem.attrib.get("name", "Unknown")
-                username = elem.attrib.get("username", "Unknown")
-                rating = elem.attrib.get("star_rating", "N/A")
-                downloads = elem.attrib.get("downloads", "0")
-                views = elem.attrib.get("views", "0")
-                points = elem.attrib.get("points", "0")
-                creation_type = elem.attrib.get("player_creation_type", "Unknown")
-
                 creations.append({
-                    "id": cid,
-                    "name": name,
-                    "username": username,
-                    "star_rating": rating,
-                    "downloads": downloads,
-                    "views": views,
-                    "points": points,
-                    "player_creation_type": creation_type
+                    "id": elem.attrib.get("id"),
+                    "name": elem.attrib.get("name", "Unknown"),
+                    "username": elem.attrib.get("username", "Unknown"),
+                    "star_rating": elem.attrib.get("star_rating", "N/A"),
+                    "downloads": elem.attrib.get("downloads", "0"),
+                    "views": elem.attrib.get("views", "0"),
+                    "points": elem.attrib.get("points", "0"),
+                    "hearts": elem.attrib.get("hearts", "0"),
+                    "player_creation_type": elem.attrib.get("player_creation_type", "Unknown")
                 })
             except Exception as e:
                 debug(f"Error parsing player_creation element: {e}")
@@ -324,18 +328,30 @@ class CreationDataFetcher:
         player_creation_type: str = "CHARACTER",
         per_page: int = 10,
         page: int = 1,
-        platform: str = "PS3"
+        platform: str = "PS3",
+        game: str = None
     ) -> Optional[Dict[str, Any]]:
-        url = f"{self.base_url}player_creations/friends_view.xml"
-        params = {
-            "filters[player_creation_type]": player_creation_type,
-            "filters[username]": username,
-            "page": page,
-            "per_page": per_page,
-            "platform": platform,
-            "sort_column": "created_at",
-            "sort_order": "desc"
-        }
+        if game == "LBPK":
+            url = f"{self.base_url}tracks.xml"
+            params = {
+                "page": page,
+                "per_page": per_page,
+                "platform": "PS3",
+                "sort_column": "created_at",
+                "sort_order": "desc",
+                "filters[username]": username
+            }
+        else:
+            url = f"{self.base_url}player_creations/friends_view.xml"
+            params = {
+                "filters[player_creation_type]": player_creation_type,
+                "filters[username]": username,
+                "page": page,
+                "per_page": per_page,
+                "platform": platform,
+                "sort_column": "created_at",
+                "sort_order": "desc"
+            }
 
         root = await self.xml_fetcher.fetch_xml(url, params=params)
         if root is None:
@@ -350,22 +366,16 @@ class CreationDataFetcher:
         for elem in pc_root.findall("player_creation"):
             try:
                 cid = elem.attrib.get("id")
-                name = elem.attrib.get("name", "Unknown")
-                rating = elem.attrib.get("star_rating", "N/A")
-                downloads = elem.attrib.get("downloads", "0")
-                views = elem.attrib.get("views", "0")
-                points = elem.attrib.get("points", "0")
-                creation_type = elem.attrib.get("player_creation_type", "Unknown")
-
                 creations.append({
                     "id": cid,
-                    "name": name,
+                    "name": elem.attrib.get("name", "Unknown"),
                     "username": elem.attrib.get("username", username),
-                    "star_rating": rating,
-                    "downloads": downloads,
-                    "views": views,
-                    "points": points,
-                    "player_creation_type": creation_type
+                    "star_rating": elem.attrib.get("star_rating", "N/A"),
+                    "downloads": elem.attrib.get("downloads", "0"),
+                    "views": elem.attrib.get("views", "0"),
+                    "points": elem.attrib.get("points", "0"),
+                    "hearts": elem.attrib.get("hearts", "0"),
+                    "player_creation_type": elem.attrib.get("player_creation_type", "Unknown")
                 })
             except Exception as e:
                 debug(f"Error parsing player_creation element: {e}")
@@ -532,3 +542,21 @@ def parse_hotlap_queue_payload(data: Any) -> tuple[List[Any], Optional[int]]:
         return queue_entries, total_entries
 
     return [], None
+
+async def fetch_total_lbpk_tracks(session: aiohttp.ClientSession, base_url: str) -> str:
+    url = f"{base_url}tracks.xml"
+    params = {
+        "page": 1,
+        "per_page": 1,
+        "platform": "PS3"
+    }
+    try:
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                return "0"
+            text = await resp.text()
+        root = ET.fromstring(text)
+        pc = root.find(".//player_creations")
+        return int(pc.get("total", "0")) if pc is not None else "0"
+    except Exception:
+        return "0"
