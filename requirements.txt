@@ -1,4 +1,4 @@
 discord.py>=2.7.1
 colorama==0.4.6
-aiohttp>=3.7.4
+aiohttp>=3.13.5
 python-dotenv>=1.2.1
