@@ -64,6 +64,48 @@ class Players(commands.Cog):
             await interaction.followup.send(embed=embed, files=files)
         finally:
             cleanup_temp_file(temp_avatar_path)
+    
+    # TODO: LPBK Avatars
+    @app_commands.command(name="get_avatar", description="Get a player's avatar by their username.")
+    @app_commands.describe(
+        username="The username of the player you want to view.",
+        type="Which avatar image to fetch."
+    )
+    @app_commands.choices(type=[
+        app_commands.Choice(name="Full Avatar", value="secondary"),
+        app_commands.Choice(name="Mod Head", value="primary"),
+    ])
+    async def get_avatar(
+        self,
+        interaction: discord.Interaction,
+        username: str,
+        type: app_commands.Choice[str]
+    ):
+        await interaction.response.defer()
+
+        player_id = await self.player_fetcher.get_player_id(username)
+        if not player_id:
+            return await interaction.followup.send(f"Could not find player `{username}`.")
+
+        avatar_url = await self.player_fetcher.get_player_avatar(
+            player_id,
+            primary=(type.value == "primary")
+        )
+        if not avatar_url:
+            return await interaction.followup.send(
+                f"Could not fetch {type.value} avatar for player ID `{player_id}`."
+            )
+
+        avatar_file, avatar_image_url, temp_avatar_path = await prepare_player_avatar_attachment(
+            self.session,
+            avatar_url,
+            player_id
+        )
+
+        try:
+            await interaction.followup.send(file=avatar_file)
+        finally:
+            cleanup_temp_file(temp_avatar_path)
 
 
 async def setup(bot):

@@ -26,6 +26,56 @@ CREATION_ID_KEYS = (
 
 CREATION_TYPE_KEYS = ("player_creation_type", "creation_type", "type", "Type")
 
+PLATFORM_LABELS = {
+    0: "PS2",
+    1: "PSP",
+    2: "PS3",
+    3: "WEB",
+    4: "PSV"
+}
+
+PERMISSION_LABELS = {
+    "ManageModerators": "Manage Moderators",
+    "BanUsers": "Ban Players",
+    "ChangeUserSettings": "Change Settings",
+    "ResetUserStats": "Reset Player Stats",
+    "RemoveUsers": "Remove Players",
+    "ChangeCreationStatus": "Change Creation Status",
+    "ResetCreationStats": "Reset Creation Stats",
+    "RemovePlayerCreations": "Remove Player Creations",
+    "ManageAnnouncements": "Manage Announcements",
+    "ManageHotlap": "Manage Hotlap",
+    "ManageSystemEvents": "Manage System Events",
+    "ManageWhitelist": "Manage Whitelist",
+    "ViewGriefReports": "View Grief Reports",
+    "ViewPlayerComplaints": "View Player Complaints",
+    "ViewPlayerCreationComplaints": "View Creation Complaints",
+    "ChangeUserQuota": "Change Player Quota",
+}
+
+PERMISSION_ARGUMENT_MAP = {
+    "BanUsers": "ban_users",
+    "ChangeUserSettings": "change_user_settings",
+    "ChangeUserQuota": "change_user_quota",
+    "ResetUserStats": "reset_user_stats",
+    "RemoveUsers": "remove_users",
+    "ChangeCreationStatus": "change_creation_status",
+    "ResetCreationStats": "reset_creation_stats",
+    "RemovePlayerCreations": "remove_player_creations",
+    "ManageModerators": "manage_moderators",
+    "ManageAnnouncements": "manage_announcements",
+    "ManageHotlap": "manage_hotlap",
+    "ManageSystemEvents": "manage_system_events",
+    "ManageWhitelist": "manage_whitelist",
+    "ViewGriefReports": "view_grief_reports",
+    "ViewPlayerComplaints": "view_player_complaints",
+    "ViewPlayerCreationComplaints": "view_player_creation_complaints",
+}
+
+DEFAULT_MODERATOR_PERMISSIONS = {
+    permission: False for permission in PERMISSION_ARGUMENT_MAP
+}
+
 def debug(msg: str):
     from config import DEBUG_MODE
     if DEBUG_MODE:
@@ -109,9 +159,52 @@ def format_time(time_str: str) -> str:
     except Exception:
         return time_str
 
-def to_discord_timestamp(iso_date: str) -> str:
-    dt = datetime.fromisoformat(iso_date)
-    return f"<t:{int(dt.timestamp())}:F>"
+def to_discord_timestamp(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return f"<t:{int(value)}:F>"
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if raw.isdigit():
+            return f"<t:{int(raw)}:F>"
+
+        try:
+            iso = raw.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(iso)
+            return f"<t:{int(dt.timestamp())}:F>"
+        except ValueError:
+            return raw
+
+    return str(value)
+
+
+def truncate_text(value: Any, max_len: int, fallback: str = "") -> str:
+    if not isinstance(value, str):
+        return fallback
+    text = value.strip()
+    if not text:
+        return fallback
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip() + "..."
+
+
+def parse_paged_payload(data: Any, page_key: str = "Page") -> tuple[list[dict[str, Any]], Optional[int], bool]:
+    if isinstance(data, dict):
+        items = data.get(page_key, [])
+        if isinstance(items, list):
+            normalized_items = [item for item in items if isinstance(item, dict)]
+            total = data.get("Total")
+            if isinstance(total, int):
+                return normalized_items, total, True
+            return normalized_items, len(normalized_items), True
+        return [], None, False
+
+    if isinstance(data, list):
+        normalized_items = [item for item in data if isinstance(item, dict)]
+        return normalized_items, len(normalized_items), True
+
+    return [], None, False
 
 class PlayerDataFetcher:    
     def __init__(self, session: aiohttp.ClientSession, base_url: str):

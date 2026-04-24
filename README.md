@@ -1,10 +1,10 @@
 # Skidplate
 
-A Discord Bot written in Python that retrieves player and creation information from a PLGarage instance.
+A Discord Bot written in Python that retrieves player and creation information from a [PLGarage](https://github.com/jackcaver/PLGarage) instance.
 
 ## About
 
-Skidplate is a Discord bot designed to integrate with PLGarage APIs, providing easy access to player statistics and creation data from supported gaming platforms. Currently focused on ModNation Racers for PS3, with plans to support other platforms and LittleBigPlanet Karting.
+Skidplate is a Discord bot designed to integrate with [PLGarage](https://github.com/jackcaver/PLGarage) APIs, providing easy access to player/creation statistics and data. Currently focused on ModNation Racers for PS3, with plans to support other platforms and LittleBigPlanet Karting.
 
 This project is built on discord.py and uses Docker for containerized deployment.
 
@@ -24,7 +24,7 @@ This project is built on discord.py and uses Docker for containerized deployment
 - Python 3.13+
 - Docker and Docker Compose (for containerized deployment)
 - A Discord Bot token from Discord Developer Portal
-- A PLGarage instance URL
+- A [PLGarage](https://github.com/jackcaver/PLGarage) instance
 
 ## Quick Start with Docker
 
@@ -146,35 +146,6 @@ python main.py
 
 The bot will log its activities to the console. If DEBUG_MODE is enabled in .env, you will see detailed command execution information.
 
-## Project Structure
-
-```
-skidplate/
-├── main.py              Main bot entry point
-├── config.py            Configuration management
-├── utils.py             Utility functions
-├── clients/             API clients and helpers
-│   ├── __init__.py
-│   ├── moderation_api.py
-│   └── xml_client.py
-├── ui/                  Shared embed/UI builders
-│   ├── __init__.py
-│   ├── creation_embeds.py
-│   └── player_embeds.py
-├── cogs/                Discord command modules
-│   ├── creations.py
-│   ├── leaderboard.py
-│   ├── moderation.py
-│   ├── players.py
-│   └── stats.py
-├── img/                 Bot image assets
-├── requirements.txt     Python dependencies
-├── Dockerfile           Container configuration
-├── docker-compose.yml   Compose configuration
-├── .env                 Environment variables 
-└── README.md            Project documentation
-```
-
 ## Dependencies
 
 - `discord.py>=2.4.0` - Discord API wrapper
@@ -221,10 +192,6 @@ Fix steps:
   - **MESSAGE CONTENT INTENT**
 4. Save changes
 5. Restart the bot/container
-
-## Related Projects
-
-- [PLGarage](https://github.com/jackcaver/PLGarage)
 
 ## License
 
