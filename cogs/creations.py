@@ -5,7 +5,8 @@ import aiohttp
 from config import EMBED_COLOR, URL, FULL, HALF, EMPTY
 from utils import (
     create_basic_embed,
-    CreationDataFetcher
+    CreationDataFetcher,
+    debug
 )
 from ui import (
     add_top_creation_fields_to_embed,
@@ -206,7 +207,7 @@ class Creations(commands.Cog):
             app_commands.Choice(name="PSV", value="PSV")
         ],
         game=[
-            app_commands.Choice(name="Modnation Racers", value="MNR"),
+            app_commands.Choice(name="ModNation Racers", value="MNR"),
             app_commands.Choice(name="LBP Karting", value="LBPK")
         ]
     )
@@ -282,7 +283,7 @@ class Creations(commands.Cog):
             app_commands.Choice(name="PSV", value="PSV")
         ],
         game=[
-            app_commands.Choice(name="Modnation Racers", value="MNR"),
+            app_commands.Choice(name="ModNation Racers", value="MNR"),
             app_commands.Choice(name="LBP Karting", value="LBPK")
         ]
     )

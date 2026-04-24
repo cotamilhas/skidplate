@@ -1,5 +1,4 @@
 import asyncio
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 from io import BytesIO
 
@@ -9,7 +8,9 @@ from utils import (
     prepare_player_avatar_attachment,
     cleanup_temp_file,
     parse_hotlap_queue_payload,
-    extract_creation_id
+    extract_creation_id,
+    PLATFORM_LABELS,
+    to_discord_timestamp
 )
 from .creation_embeds import build_creation_complaints_embed, build_banned_creations_embed
 from .player_embeds import build_player_complaints_embed, build_banned_players_embed
@@ -17,34 +18,6 @@ from .pagination import BasePaginatorView
 
 if TYPE_CHECKING:
     from cogs.moderation import Moderation
-
-
-PLATFORM_LABELS = {
-    0: "PS2",
-    1: "PSP",
-    2: "PS3",
-    3: "WEB",
-    4: "PSV"
-}
-
-
-def to_discord_timestamp(value: Any) -> str:
-    if isinstance(value, (int, float)):
-        return f"<t:{int(value)}:F>"
-
-    if isinstance(value, str):
-        raw = value.strip()
-        if raw.isdigit():
-            return f"<t:{int(raw)}:F>"
-
-        try:
-            iso = raw.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(iso)
-            return f"<t:{int(dt.timestamp())}:F>"
-        except ValueError:
-            return raw
-
-    return str(value)
 
 
 class ComplaintsPaginator(BasePaginatorView):

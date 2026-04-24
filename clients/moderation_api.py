@@ -1,7 +1,6 @@
 import aiohttp
 import json
-from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict
 from config import DEBUG_MODE
 
 
@@ -11,6 +10,14 @@ def debug(msg: str):
 
 
 class ModerationAPIHelper:
+    ERROR_LOGIN_REQUIRED = "Please login first with /mod_login."
+    ERROR_FORBIDDEN = "You do not have permission for this action."
+    ERROR_NOT_FOUND = "Requested item was not found."
+    ERROR_REQUEST_FAILED = "Moderation API request failed. Please try again."
+    ERROR_CONNECTION = "Could not reach Moderation API. Please try again."
+    ERROR_USERNAME_TAKEN = "That moderator username is already taken."
+    ERROR_CANNOT_REMOVE_SELF = "You cannot delete your own moderator account."
+
     def __init__(
         self,
         session: aiohttp.ClientSession,
@@ -30,6 +37,16 @@ class ModerationAPIHelper:
         debug(f"Auth headers prepared for user {user_id} with token: {token[:10]}...")
         return {"Authorization": f"Bearer {token}"}
 
+    def _map_plain_text_error(self, raw_text: str) -> str:
+        text = raw_text.strip().lower()
+        if text == "error_username_is_taken":
+            return self.ERROR_USERNAME_TAKEN
+        if text == "error_cannot_remove_yourself":
+            return self.ERROR_CANNOT_REMOVE_SELF
+        if text.startswith("error"):
+            return self.ERROR_REQUEST_FAILED
+        return self.ERROR_REQUEST_FAILED
+
     async def api_request(self, method: str, endpoint: str, user_id: int, **kwargs):
         url = f"{self.api_base}api/moderation{endpoint}"
         headers = await self.get_auth_headers(user_id)
@@ -43,19 +60,19 @@ class ModerationAPIHelper:
 
                 if resp.status == 401:
                     debug("Unauthorized (401)")
-                    return None, "Unauthorized. Please log in first."
+                    return None, self.ERROR_LOGIN_REQUIRED
                 
                 if resp.status == 403:
                     debug("Permission denied (403)")
-                    return None, "Permission denied. You do not have access to this action."
+                    return None, self.ERROR_FORBIDDEN
                 
                 if resp.status == 404:
                     debug("Resource not found (404)")
-                    return None, "Resource not found."
+                    return None, self.ERROR_NOT_FOUND
                 
                 if resp.status >= 400:
                     debug(f"Error response: {resp.status}")
-                    return None, f"Error {resp.status}"
+                    return None, self.ERROR_REQUEST_FAILED
 
                 text = await resp.text()
                 debug(f"Raw response text: {text[:200]}")
@@ -66,9 +83,13 @@ class ModerationAPIHelper:
 
                     return data, None
                 except json.JSONDecodeError:
-                    debug("JSON parsing failed, returning as text")
-                    
-                    return text, None
+                    debug("JSON parsing failed, handling as plain text")
+
+                    stripped = text.strip()
+                    if stripped.lower().startswith("error"):
+                        return None, self._map_plain_text_error(stripped)
+
+                    return stripped, None
         except Exception as e:
             debug(f"API Request exception: {str(e)}")
-            return None, f"Connection error: {str(e)}"
+            return None, self.ERROR_CONNECTION

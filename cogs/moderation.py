@@ -15,6 +15,16 @@ from ui import (
     SystemEventsPaginator,
     HotlapQueuePaginator
 )
+from ui.moderation_modals import (
+    ModeratorLoginModal,
+    ModeratorCreateModal,
+    AnnouncementCreateModal,
+    AnnouncementEditModal,
+    SystemEventCreateModal,
+    SystemEventEditModal,
+    get_announcement_for_edit,
+    get_system_event_for_edit,
+)
 from utils import (
     debug,
     PlayerDataFetcher,
@@ -22,52 +32,16 @@ from utils import (
     prepare_player_avatar_attachment,
     cleanup_temp_file,
     extract_creation_id,
-    extract_creation_type,
     is_not_a_track_response,
-    parse_hotlap_queue_payload
+    parse_hotlap_queue_payload,
+    PLATFORM_LABELS,
+    PERMISSION_LABELS,
+    PERMISSION_ARGUMENT_MAP,
+    DEFAULT_MODERATOR_PERMISSIONS,
+    truncate_text,
+    parse_paged_payload
 )
 from clients import ModerationAPIHelper
-
-
-PERMISSION_LABELS = {
-    "ManageModerators": "Manage Moderators",
-    "BanUsers": "Ban Players",
-    "ChangeUserSettings": "Change Settings",
-    "ChangeCreationStatus": "Change Creation Status",
-    "ManageAnnouncements": "Manage Announcements",
-    "ManageHotlap": "Manage Hotlap",
-    "ManageSystemEvents": "Manage System Events",
-    "ViewGriefReports": "View Grief Reports",
-    "ViewPlayerComplaints": "View Player Complaints",
-    "ViewPlayerCreationComplaints": "View Creation Complaints",
-    "ChangeUserQuota": "Change Player Quota",
-}
-
-PERMISSION_ARGUMENT_MAP = {
-    "BanUsers": "ban_users",
-    "ChangeCreationStatus": "change_creation_status",
-    "ChangeUserSettings": "change_user_settings",
-    "ViewGriefReports": "view_grief_reports",
-    "ViewPlayerComplaints": "view_player_complaints",
-    "ViewPlayerCreationComplaints": "view_player_creation_complaints",
-    "ManageModerators": "manage_moderators",
-    "ManageAnnouncements": "manage_announcements",
-    "ManageHotlap": "manage_hotlap",
-    "ManageSystemEvents": "manage_system_events",
-    "ChangeUserQuota": "change_user_quota",
-}
-
-DEFAULT_MODERATOR_PERMISSIONS = {
-    permission: False for permission in PERMISSION_ARGUMENT_MAP
-}
-
-PLATFORM_LABELS = {
-    0: "PS2",
-    1: "PSP",
-    2: "PS3",
-    3: "WEB",
-    4: "PSV"
-}
 
 PLATFORM_CHOICES = [
     app_commands.Choice(name=label, value=value)
@@ -75,34 +49,38 @@ PLATFORM_CHOICES = [
 ]
 
 
+async def _check_moderator_role(interaction: discord.Interaction) -> bool:
+    if not isinstance(interaction.user, discord.Member):
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="Error",
+                    description="This command can only be used in a server.",
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
+        return False
+
+    if not any(role.id == MODERATOR_ROLE_ID for role in interaction.user.roles):
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="Access Denied",
+                    description=f"You need the <@&{MODERATOR_ROLE_ID}> role to use this command.",
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
+        return False
+
+    return True
+
+
 def has_moderator_role():
     async def predicate(interaction: discord.Interaction) -> bool:
-        if not isinstance(interaction.user, discord.Member):
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    embed=discord.Embed(
-                        title="Error",
-                        description="This command can only be used in a server.",
-                        color=discord.Color.red()
-                    ),
-                    ephemeral=True
-                )
-            return False
-        
-        if not any(role.id == MODERATOR_ROLE_ID for role in interaction.user.roles):
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    embed=discord.Embed(
-                        title="Access Denied",
-                        description=f"You need the <@&{MODERATOR_ROLE_ID}> role to use this command.",
-                        color=discord.Color.red()
-                    ),
-                    ephemeral=True
-                )
-            return False
-        
-        return True
-    
+        return await _check_moderator_role(interaction)
+
     return app_commands.check(predicate)
 
 
@@ -169,35 +147,6 @@ class Moderation(commands.Cog):
             color=discord.Color.green(),
             ephemeral=ephemeral
         )
-
-    @staticmethod
-    def _truncate_text(value: Any, max_len: int, fallback: str = "") -> str:
-        if not isinstance(value, str):
-            return fallback
-        text = value.strip()
-        if not text:
-            return fallback
-        if len(text) <= max_len:
-            return text
-        return text[:max_len].rstrip() + "..."
-
-    @staticmethod
-    def _parse_paged_payload(data: Any, page_key: str = "Page") -> tuple[list[dict[str, Any]], Optional[int], bool]:
-        if isinstance(data, dict):
-            items = data.get(page_key, [])
-            if isinstance(items, list):
-                normalized_items = [item for item in items if isinstance(item, dict)]
-                total = data.get("Total")
-                if isinstance(total, int):
-                    return normalized_items, total, True
-                return normalized_items, len(normalized_items), True
-            return [], None, False
-
-        if isinstance(data, list):
-            normalized_items = [item for item in data if isinstance(item, dict)]
-            return normalized_items, len(normalized_items), True
-
-        return [], None, False
 
     async def _resolve_player_id_or_error(self, interaction: discord.Interaction, username: str) -> Optional[str]:
         player_id = await self.player_fetcher.get_player_id(username)
@@ -288,7 +237,7 @@ class Moderation(commands.Cog):
         if error:
             return [], error
 
-        moderators, _, is_valid = self._parse_paged_payload(data)
+        moderators, _, is_valid = parse_paged_payload(data)
         if is_valid:
             return moderators, None
         return [], "Unexpected moderator list format."
@@ -400,20 +349,6 @@ class Moderation(commands.Cog):
             return
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    async def ensure_track_creation(self, interaction: discord.Interaction, creation_id: int) -> bool:
-        if await self.is_track_creation(creation_id):
-            return True
-
-        await self.send_error(interaction, f"Creation `{creation_id}` is not a track.")
-        return False
-
-    async def is_track_creation(self, creation_id: int) -> bool:
-        creation_info = await self.creation_fetcher.get_creation_info(creation_id)
-        if not creation_info:
-            return False
-        creation_type = extract_creation_type(creation_info)
-        return creation_type == "TRACK"
-
     async def get_creation_preview_bytes(self, creation_id: int) -> Optional[bytes]:
         cached = self.creation_preview_cache.get(creation_id)
         if cached is not None:
@@ -433,77 +368,27 @@ class Moderation(commands.Cog):
             return None
 
     # ===== MODERATOR SELF MANAGEMENT =====
-    @app_commands.command(name="mod_login", description="Connect as API moderator")
-    @app_commands.describe(username="Moderator username", password="Moderator password")
+    @app_commands.command(name="mod_login", description="Connect as API moderator (opens a modal)")
     @has_moderator_role()
-    async def mod_login(self, interaction: discord.Interaction, username: str, password: str):
+    async def mod_login(self, interaction: discord.Interaction):
         debug(f"mod_login called by {interaction.user}")
-        await interaction.response.defer(ephemeral=True)
-        
-        user_id = interaction.user.id
-        
-        try:
-            url = f"{self.api_base}api/moderation/login"
-            debug(f"Login attempt to: {url}")
-            async with self.moderation_session.post(url, data={"login": username, "password": password}) as resp:
-                debug(f"Login response status: {resp.status}")
-                text = await resp.text()
-                
-                if resp.status == 200 and text == "ok":
-                    cookies = resp.cookies
-                    if 'Token' in cookies:
-                        token = cookies['Token'].value
-                        self.user_tokens[user_id] = token
-                        debug(f"Token received for user {user_id}: {token[:10]}...")
-                        await self.send_success(interaction, f"Connected as **{username}**", ephemeral=True)
-                    else:
-                        debug("No token in response cookies")
-                        await self.send_embed(
-                            interaction,
-                            title="Login Failed",
-                            description="Server did not provide token",
-                            color=discord.Color.red(),
-                            ephemeral=True
-                        )
-                else:
-                    debug(f"Login failed with status {resp.status}")
-                    await self.send_embed(
-                        interaction,
-                        title="Login Failed",
-                        description="Invalid username or password",
-                        color=discord.Color.red(),
-                        ephemeral=True
-                    )
-        except Exception as e:
-            debug(f"Login exception: {str(e)}")
-            await self.send_error(interaction, f"```{str(e)}```", ephemeral=True)
+        await interaction.response.send_modal(ModeratorLoginModal(self))
             
-    @app_commands.command(name="mod_create", description="Create a new moderator")
-    @app_commands.describe(username="New moderator username", password="New moderator password")
+    @app_commands.command(name="mod_create", description="Create a new moderator (opens a modal)")
     @has_moderator_role()
-    async def mod_create(self, interaction: discord.Interaction, username: str, password: str):
-        debug(f"mod_create called by {interaction.user} for username: {username}")
-        await interaction.response.defer(ephemeral=True)
-        
-        user_id = interaction.user.id
-        
-        try:    
-            permissions = DEFAULT_MODERATOR_PERMISSIONS.copy()
-            
-            data, error = await self.api_request("POST", "/moderators", user_id,
-                                                params={"username": username, "password": password},
-                                                json=permissions)
-            
-            if error:
-                await self.send_error(interaction, error, ephemeral=True)
-                return
-
-            await self.send_success(interaction, f"Moderator **{username}** created successfully", ephemeral=True)
-            debug(f"Moderator {username} created by {interaction.user.name}")
-            
-        except Exception as e:
-            debug(f"Error creating moderator: {str(e)}")
-            await self.send_error(interaction, f"```{str(e)}```", ephemeral=True)
+    async def mod_create(self, interaction: discord.Interaction):
+        debug(f"mod_create called by {interaction.user}")
+        if interaction.user.id not in self.user_tokens:
+            await interaction.response.send_message(
+                embed=self._embed(
+                    title="Error",
+                    description=self.moderation_api.ERROR_LOGIN_REQUIRED,
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
+            return
+        await interaction.response.send_modal(ModeratorCreateModal(self))
 
     @app_commands.command(name="mod_perms", description="View your moderation permissions")
     @has_moderator_role()
@@ -872,9 +757,6 @@ class Moderation(commands.Cog):
     async def set_hotlap(self, interaction: discord.Interaction, creation_id: int):
         await interaction.response.defer(ephemeral=True)
 
-        if not await self.ensure_track_creation(interaction, creation_id):
-            return
-
         user_id = interaction.user.id
         data, error = await self.api_request('POST', '/hotlap', user_id, params={"creation": creation_id})
         if error:
@@ -974,9 +856,6 @@ class Moderation(commands.Cog):
     async def hotlap_queue_add(self, interaction: discord.Interaction, creation_id: int):
         await interaction.response.defer(ephemeral=True)
 
-        if not await self.ensure_track_creation(interaction, creation_id):
-            return
-
         user_id = interaction.user.id
         data, error = await self.api_request('POST', '/hotlap/queue', user_id, params={"creation": creation_id})
         if error:
@@ -1041,62 +920,98 @@ class Moderation(commands.Cog):
         sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = sent_message
 
-    @app_commands.command(name="announce_create", description="Create an announcement")
-    @app_commands.describe(platform="Platform", subject="Subject", text="Body text")
-    @app_commands.choices(platform=PLATFORM_CHOICES)
+    @app_commands.command(name="announce_create", description="Create an announcement (opens a modal)")
     @has_moderator_role()
     async def announce_create(
         self,
-        interaction: discord.Interaction,
-        platform: app_commands.Choice[int],
-        subject: str,
-        text: str
+        interaction: discord.Interaction
     ):
-        await interaction.response.defer(ephemeral=True)
-        user_id = interaction.user.id
-
-        params = {
-            "languageCode": "en-US",
-            "subject": subject,
-            "text": text,
-            "platform": platform.value
-        }
-
-        data, error = await self.api_request("POST", "/announcements", user_id, params=params)
-        if error:
-            await self.send_error(interaction, error, ephemeral=True)
+        if interaction.user.id not in self.user_tokens:
+            await interaction.response.send_message(
+                embed=self._embed(
+                    title="Error",
+                    description=self.moderation_api.ERROR_LOGIN_REQUIRED,
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
             return
+        await interaction.response.send_modal(AnnouncementCreateModal(self))
 
-        await self.send_success(interaction, "Announcement created.", ephemeral=True)
-
-    @app_commands.command(name="announce_edit", description="Edit an announcement")
-    @app_commands.describe(announcement_id="Announcement ID", platform="Platform", subject="Subject", text="Body text")
-    @app_commands.choices(platform=PLATFORM_CHOICES)
+    @app_commands.command(name="announce_edit", description="Edit an announcement (opens a modal)")
+    @app_commands.describe(announcement_id="Announcement ID")
     @has_moderator_role()
     async def announce_edit(
         self,
         interaction: discord.Interaction,
-        announcement_id: int,
-        platform: app_commands.Choice[int],
-        subject: str,
-        text: str
+        announcement_id: int
     ):
-        await interaction.response.defer(ephemeral=True)
-        user_id = interaction.user.id
-
-        params = {
-            "languageCode": "en-US",
-            "subject": subject,
-            "text": text,
-            "platform": platform.value
-        }
-
-        data, error = await self.api_request("POST", f"/announcements/{announcement_id}", user_id, params=params)
-        if error:
-            await self.send_error(interaction, error, ephemeral=True)
+        if interaction.user.id not in self.user_tokens:
+            await interaction.response.send_message(
+                embed=self._embed(
+                    title="Error",
+                    description=self.moderation_api.ERROR_LOGIN_REQUIRED,
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
             return
 
-        await self.send_success(interaction, f"Announcement `{announcement_id}` updated.", ephemeral=True)
+        user_id = interaction.user.id
+
+        announcement_data, fetch_error = await get_announcement_for_edit(
+            self,
+            user_id,
+            announcement_id,
+            None
+        )
+
+        if fetch_error == "Announcement not found.":
+            await interaction.response.send_message(
+                embed=self._embed(
+                    title="Error",
+                    description=f"Announcement `{announcement_id}` was not found.",
+                    color=discord.Color.red()
+                ),
+                ephemeral=True
+            )
+            return
+
+        initial_subject: Optional[str] = None
+        initial_text: Optional[str] = None
+        initial_platform: Optional[str] = None
+        if announcement_data:
+            initial_subject = truncate_text(
+                announcement_data.get("Subject", announcement_data.get("subject", "")),
+                120,
+                ""
+            )
+            initial_text = truncate_text(
+                announcement_data.get("Text", announcement_data.get("text", "")),
+                1900,
+                ""
+            )
+            platform_value = announcement_data.get("Platform", announcement_data.get("platform"))
+            if isinstance(platform_value, int):
+                initial_platform = str(platform_value)
+            elif isinstance(platform_value, str):
+                initial_platform = platform_value.strip()
+
+        if fetch_error and fetch_error != "Announcement not found.":
+            debug(
+                f"announce_edit prefill failed for announcement {announcement_id}: {fetch_error}. "
+                "Opening modal without prefilled values."
+            )
+
+        await interaction.response.send_modal(
+            AnnouncementEditModal(
+                self,
+                announcement_id,
+                initial_platform=initial_platform,
+                initial_subject=initial_subject,
+                initial_text=initial_text
+            )
+        )
 
     @app_commands.command(name="announce_delete", description="Delete an announcement")
     @app_commands.describe(announcement_id="Announcement ID")
@@ -1112,89 +1027,127 @@ class Moderation(commands.Cog):
 
         await self.send_success(interaction, f"Announcement `{announcement_id}` deleted.", ephemeral=True)
         
-    # ===== SYSTEM EVENTS =====
-    @app_commands.command(name="sysmsg_list", description="List system messages (system events)")
-    @app_commands.describe(page="Page (default: 1)")
-    @has_moderator_role()
-    async def sysmsg_list(self, interaction: discord.Interaction, page: int = 1):
-        await interaction.response.defer(ephemeral=True)
-        view = SystemEventsPaginator(
-            moderation_cog=self,
-            interaction_user_id=interaction.user.id,
-            moderator_user_id=interaction.user.id,
-            start_page=page
-        )
+    # # ===== SYSTEM EVENTS =====
+    # @app_commands.command(name="sysmsg_list", description="List system messages (system events)")
+    # @app_commands.describe(page="Page (default: 1)")
+    # @has_moderator_role()
+    # async def sysmsg_list(self, interaction: discord.Interaction, page: int = 1):
+    #     await interaction.response.defer(ephemeral=True)
+    #     view = SystemEventsPaginator(
+    #         moderation_cog=self,
+    #         interaction_user_id=interaction.user.id,
+    #         moderator_user_id=interaction.user.id,
+    #         start_page=page
+    #     )
 
-        embed, error = await view.initialize()
-        if error:
-            await self.send_error(interaction, error, ephemeral=True)
-            return
+    #     embed, error = await view.initialize()
+    #     if error:
+    #         await self.send_error(interaction, error, ephemeral=True)
+    #         return
 
-        sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
-        view.message = sent_message
+    #     sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
+    #     view.message = sent_message
 
-    @app_commands.command(name="sysmsg_create", description="Create a system event")
-    @app_commands.describe(topic="Short title/topic", description="Message text", image_url="Optional image URL")
-    @has_moderator_role()
-    async def sysmsg_create(
-        self,
-        interaction: discord.Interaction,
-        topic: str,
-        description: str,
-        image_url: Optional[str] = None
-    ):
-        await interaction.response.defer(ephemeral=True)
-        user_id = interaction.user.id
+    # @app_commands.command(name="sysmsg_create", description="Create a system event (opens a modal)")
+    # @has_moderator_role()
+    # async def sysmsg_create(self, interaction: discord.Interaction):
+    #     if interaction.user.id not in self.user_tokens:
+    #         await interaction.response.send_message(
+    #             embed=self._embed(
+    #                 title="Error",
+    #                 description=self.moderation_api.ERROR_LOGIN_REQUIRED,
+    #                 color=discord.Color.red()
+    #             ),
+    #             ephemeral=True
+    #         )
+    #         return
+    #     await interaction.response.send_modal(SystemEventCreateModal(self))
 
-        params = {"topic": topic, "description": description}
-        if image_url:
-            params["imageURL"] = image_url
+    # @app_commands.command(name="sysmsg_edit", description="Edit a system event (opens a modal)")
+    # @app_commands.describe(event_id="System event ID")
+    # @has_moderator_role()
+    # async def sysmsg_edit(
+    #     self,
+    #     interaction: discord.Interaction,
+    #     event_id: int
+    # ):
+    #     if interaction.user.id not in self.user_tokens:
+    #         await interaction.response.send_message(
+    #             embed=self._embed(
+    #                 title="Error",
+    #                 description=self.moderation_api.ERROR_LOGIN_REQUIRED,
+    #                 color=discord.Color.red()
+    #             ),
+    #             ephemeral=True
+    #         )
+    #         return
 
-        data, error = await self.api_request("POST", "/system_events", user_id, params=params)
-        if error:
-            await self.send_error(interaction, error, ephemeral=True)
-            return
+    #     user_id = interaction.user.id
+    #     event_data, fetch_error = await get_system_event_for_edit(self, user_id, event_id)
 
-        await self.send_success(interaction, "System event created.", ephemeral=True)
+    #     if fetch_error == "System event not found.":
+    #         await interaction.response.send_message(
+    #             embed=self._embed(
+    #                 title="Error",
+    #                 description=f"System event `{event_id}` was not found.",
+    #                 color=discord.Color.red()
+    #             ),
+    #             ephemeral=True
+    #         )
+    #         return
 
-    @app_commands.command(name="sysmsg_edit", description="Edit a system event")
-    @app_commands.describe(event_id="System event ID", topic="Short title/topic", description="Message text", image_url="Optional image URL")
-    @has_moderator_role()
-    async def sysmsg_edit(
-        self,
-        interaction: discord.Interaction,
-        event_id: int,
-        topic: str,
-        description: str,
-        image_url: Optional[str] = None
-    ):
-        await interaction.response.defer(ephemeral=True)
-        user_id = interaction.user.id
+    #     initial_topic: Optional[str] = None
+    #     initial_description: Optional[str] = None
+    #     initial_image_url: Optional[str] = None
+    #     if event_data:
+    #         initial_topic = truncate_text(
+    #             event_data.get("Topic", event_data.get("topic", "")),
+    #             120,
+    #             ""
+    #         )
+    #         initial_description = truncate_text(
+    #             event_data.get("Description", event_data.get("description", "")),
+    #             1900,
+    #             ""
+    #         )
+    #         initial_image_url = truncate_text(
+    #             event_data.get("ImageURL", event_data.get("imageURL", event_data.get("image_url", ""))),
+    #             500,
+    #             ""
+    #         )
 
-        params = {"topic": topic, "description": description}
-        if image_url:
-            params["imageURL"] = image_url
+    #     if fetch_error and fetch_error != "System event not found.":
+    #         debug(
+    #             f"sysmsg_edit prefill failed for event {event_id}: {fetch_error}. "
+    #             "Opening modal without prefilled values."
+    #         )
 
-        data, error = await self.api_request("POST", f"/system_events/{event_id}", user_id, params=params)
-        if error:
-            await self.send_error(interaction, error, ephemeral=True)
-            return
+    #     await interaction.response.send_modal(
+    #         SystemEventEditModal(
+    #             self,
+    #             event_id,
+    #             initial_topic=initial_topic,
+    #             initial_description=initial_description,
+    #             initial_image_url=initial_image_url
+    #         )
+    #     )
 
-        await self.send_success(interaction, f"System event `{event_id}` updated.", ephemeral=True)
+    # @app_commands.command(name="sysmsg_delete", description="Delete a system event")
+    # @app_commands.describe(event_id="System event ID")
+    # @has_moderator_role()
+    # async def sysmsg_delete(self, interaction: discord.Interaction, event_id: int):
+    #     await interaction.response.defer(ephemeral=True)
+    #     user_id = interaction.user.id
 
-    @app_commands.command(name="sysmsg_delete", description="Delete a system event")
-    @app_commands.describe(event_id="System event ID")
-    @has_moderator_role()
-    async def sysmsg_delete(self, interaction: discord.Interaction, event_id: int):
-        await interaction.response.defer(ephemeral=True)
-        user_id = interaction.user.id
+    #     data, error = await self.api_request("DELETE", f"/system_events/{event_id}", user_id)
+    #     if error:
+    #         await self.send_error(interaction, error, ephemeral=True)
+    #         return
 
-        data, error = await self.api_request("DELETE", f"/system_events/{event_id}", user_id)
-        if error:
-            await self.send_error(interaction, error, ephemeral=True)
-            return
-
-        await self.send_success(interaction, f"System event `{event_id}` deleted.", ephemeral=True)
+    #     await self.send_success(interaction, f"System event `{event_id}` deleted.", ephemeral=True)
+        
+    # ===== WHITELIST MANAGEMENT =====
+    # TODO
 
     # ===== MODERATOR MANAGEMENT =====
     @app_commands.command(name="mod_list", description="List all moderators")
@@ -1325,13 +1278,6 @@ class Moderation(commands.Cog):
         data, error = await self.api_request("DELETE", f"/moderators/{mod_id}", user_id)
         
         if error:
-            if error == "error_cannot_remove_yourself":
-                await self.send_error(
-                    interaction,
-                    "You cannot delete your own moderator account.",
-                    ephemeral=True
-                )
-                return
             await self.send_error(interaction, error, ephemeral=True)
             return
 
