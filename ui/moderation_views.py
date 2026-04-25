@@ -312,23 +312,94 @@ class ModeratorListPaginator(BasePaginatorView):
         total_pages_text = str(self.total_pages) if self.total_pages is not None else "?"
         embed = discord.Embed(
             title="Moderators",
-            description=f"Page {self.current_page}/{total_pages_text}",
+            description=(
+                f"Page **{self.current_page}/{total_pages_text}**"
+            ),
             color=discord.Color.blue()
         )
         if self.total_items is not None:
             embed.set_footer(text=f"Total: {self.total_items}")
 
         if not self.items:
-            embed.description += "\nNo moderators found."
+            embed.add_field(name="Entries", value="No moderators found.", inline=False)
             return embed
 
-        for mod in self.items:
-            mid = mod.get("ID", "?")
+        lines: list[str] = []
+        for index, mod in enumerate(self.items, start=1 + ((self.current_page - 1) * self.per_page)):
             username = mod.get("Username", "Unknown")
-            embed.add_field(name=f"ID: {mid}", value=f"**{username}**", inline=False)
+            lines.append(f"{index:2} | **{username}**")
+
+        embed.add_field(name="Entries", value="\n".join(lines), inline=False)
 
         return embed
 
+
+class WhitelistPaginator(BasePaginatorView):
+    page_modal_title = "Go to Whitelist Page"
+
+    def __init__(self, moderation_cog: "Moderation", interaction_user_id: int, moderator_user_id: int, start_page: int = 1):
+        self.moderation_cog = moderation_cog
+        self.moderator_user_id = moderator_user_id
+        super().__init__(interaction_user_id, per_page=6, start_page=start_page)
+
+    async def fetch_page(self, page: int) -> tuple[Optional[list], Optional[int], Optional[int], Optional[str]]:
+        params = {"page": page, "per_page": self.per_page}
+        data, error = await self.moderation_cog.api_request("GET", "/whitelist", self.moderator_user_id, params=params)
+        if error:
+            return None, None, None, error
+
+        if isinstance(data, dict) and "Page" in data:
+            parsed_items = data.get("Page") or []
+            items = [item for item in parsed_items if isinstance(item, (str, dict))]
+            total = data.get("Total") if isinstance(data.get("Total"), int) else None
+        elif isinstance(data, list):
+            items = [item for item in data if isinstance(item, (str, dict))]
+            total = len(items)
+        else:
+            return None, None, None, "Unexpected API response format."
+
+        total_pages = None
+        if total is not None and self.per_page > 0:
+            total_pages = max(1, (total + self.per_page - 1) // self.per_page)
+
+        return items, total, total_pages, None
+
+    async def build_embed(self) -> discord.Embed:
+        total_pages_text = str(self.total_pages) if self.total_pages is not None else "?"
+        embed = discord.Embed(
+            title="Whitelist",
+            description=(
+                f"Page **{self.current_page}/{total_pages_text}**"
+            ),
+            color=discord.Color.blue()
+        )
+        if self.total_items is not None:
+            embed.set_footer(text=f"Total: {self.total_items}")
+
+        if not self.items:
+            embed.add_field(name="Entries", value="Whitelist is empty.", inline=False)
+            return embed
+
+        lines: list[str] = []
+        for index, entry in enumerate(self.items, start=1 + ((self.current_page - 1) * self.per_page)):
+            if isinstance(entry, str):
+                username = entry or "Unknown"
+                entry_id = None
+            else:
+                username = (
+                    entry.get("username")
+                    or "Unknown"
+                )
+                entry_id = entry.get("ID", entry.get("Id", None))
+            line = f"{index:2} | **{username}**"
+            if entry_id is not None:
+                line += f"  `ID: {entry_id}`"
+            lines.append(line)
+
+        embed.add_field(name="Entries", value="\n".join(lines), inline=False)
+
+        return embed
+    
 
 class AnnouncementsPaginator(BasePaginatorView):
     page_modal_title = "Go to Announcements Page"

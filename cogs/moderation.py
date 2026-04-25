@@ -11,6 +11,7 @@ from ui import (
     ComplaintsPaginator,
     BannedCreationsPaginator,
     ModeratorListPaginator,
+    WhitelistPaginator,
     AnnouncementsPaginator,
     SystemEventsPaginator,
     HotlapQueuePaginator
@@ -233,7 +234,7 @@ class Moderation(commands.Cog):
         view.message = sent_message
 
     async def get_moderators(self, user_id: int) -> tuple[list[dict[str, Any]], Optional[str]]:
-        data, error = await self.api_request("GET", "/moderators", user_id, params={"page": 1, "per_page": 1000})
+        data, error = await self.api_request("GET", "/moderators", user_id, params={"page": 1, "per_page": 6})
         if error:
             return [], error
 
@@ -241,6 +242,16 @@ class Moderation(commands.Cog):
         if is_valid:
             return moderators, None
         return [], "Unexpected moderator list format."
+
+    async def get_whitelist_entries(self, user_id: int, page: int = 1, per_page: int = 10) -> tuple[list[dict[str, Any]], Optional[int], Optional[str]]:
+        data, error = await self.api_request("GET", "/whitelist", user_id, params={"page": page, "per_page": per_page})
+        if error:
+            return [], None, error
+
+        entries, total, is_valid = parse_paged_payload(data)
+        if is_valid:
+            return entries, total, None
+        return [], None, "Unexpected whitelist format."
 
     async def find_moderator_by_username(self, user_id: int, username: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
         moderators, error = await self.get_moderators(user_id)
@@ -628,8 +639,8 @@ class Moderation(commands.Cog):
         }
 
         data, error = await self.api_request(
-            "POST",
-            f"/users/{player_id}/reset_profile",
+            "DELETE",
+            f"/users/{player_id}/stats",
             user_id,
             params=params,
         )
@@ -681,8 +692,8 @@ class Moderation(commands.Cog):
         user_id = interaction.user.id
 
         data, error = await self.api_request(
-            "POST",
-            f"/player_creations/{creation_id}/reset_stats",
+            "DELETE",
+            f"/player_creations/{creation_id}/stats",
             user_id,
         )
         debug(f"Reset creation stats result: {data}, error: {error}")
@@ -1147,8 +1158,78 @@ class Moderation(commands.Cog):
     #     await self.send_success(interaction, f"System event `{event_id}` deleted.", ephemeral=True)
         
     # ===== WHITELIST MANAGEMENT =====
-    # TODO
+    @app_commands.command(name="whitelist_list", description="List whitelist entries")
+    @app_commands.describe(page="Page (default: 1)")
+    @has_moderator_role()
+    async def whitelist_list(self, interaction: discord.Interaction, page: int = 1):
+        debug(f"whitelist_list called by {interaction.user}")
+        await interaction.response.defer(ephemeral=True)
 
+        view = WhitelistPaginator(
+            moderation_cog=self,
+            interaction_user_id=interaction.user.id,
+            moderator_user_id=interaction.user.id,
+            start_page=page
+        )
+
+        embed, error = await view.initialize()
+        if error:
+            await self.send_error(interaction, error, ephemeral=True)
+            return
+
+        sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
+        view.message = sent_message
+
+    @app_commands.command(name="whitelist_add", description="Add a username to the whitelist")
+    @app_commands.describe(username="Username to whitelist")
+    @has_moderator_role()
+    async def whitelist_add(self, interaction: discord.Interaction, username: str):
+        debug(f"whitelist_add called by {interaction.user} for {username}")
+        await interaction.response.defer(ephemeral=True)
+
+        data, error = await self.api_request("POST", "/whitelist", interaction.user.id, params={"username": username})
+        if error:
+            await self.send_error(interaction, error, ephemeral=True)
+            return
+
+        message = f"Added **{username}** to the whitelist."
+        await self.send_success(interaction, message, ephemeral=True)
+
+    @app_commands.command(name="whitelist_update", description="Rename a whitelist username")
+    @app_commands.describe(old_username="Current whitelisted username", new_username="New username")
+    @has_moderator_role()
+    async def whitelist_update(self, interaction: discord.Interaction, old_username: str, new_username: str):
+        debug(f"whitelist_update called by {interaction.user} for {old_username} -> {new_username}")
+        await interaction.response.defer(ephemeral=True)
+
+        data, error = await self.api_request(
+            "PATCH",
+            "/whitelist",
+            interaction.user.id,
+            params={"oldUsername": old_username, "newUsername": new_username}
+        )
+        if error:
+            await self.send_error(interaction, error, ephemeral=True)
+            return
+
+        message = f"Updated whitelist username from **{old_username}** to **{new_username}**."
+        await self.send_success(interaction, message, ephemeral=True)
+
+    @app_commands.command(name="whitelist_remove", description="Remove a username from the whitelist")
+    @app_commands.describe(username="Username to remove from the whitelist")
+    @has_moderator_role()
+    async def whitelist_remove(self, interaction: discord.Interaction, username: str):
+        debug(f"whitelist_remove called by {interaction.user} for {username}")
+        await interaction.response.defer(ephemeral=True)
+
+        data, error = await self.api_request("DELETE", "/whitelist", interaction.user.id, params={"username": username})
+        if error:
+            await self.send_error(interaction, error, ephemeral=True)
+            return
+
+        message = f"Removed **{username}** from the whitelist."
+        await self.send_success(interaction, message, ephemeral=True)
+    
     # ===== MODERATOR MANAGEMENT =====
     @app_commands.command(name="mod_list", description="List all moderators")
     @app_commands.describe(page="Page (default: 1)")

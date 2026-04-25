@@ -11,6 +11,7 @@ from .moderation_views import (
     ComplaintsPaginator,
     BannedCreationsPaginator,
     ModeratorListPaginator,
+    WhitelistPaginator,
     AnnouncementsPaginator,
     SystemEventsPaginator,
     HotlapQueuePaginator
@@ -40,6 +41,7 @@ __all__ = [
     "BanListPaginator",
     "BannedCreationsPaginator",
     "ModeratorListPaginator",
+    "WhitelistPaginator",
     "AnnouncementsPaginator",
     "SystemEventsPaginator",
     "HotlapQueuePaginator",
