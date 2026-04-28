@@ -148,10 +148,10 @@ The bot will log its activities to the console. If DEBUG_MODE is enabled in .env
 
 ## Dependencies
 
-- `discord.py>=2.7.1` - Discord API wrapper
-- `colorama==0.4.6` - Colored terminal output
-- `aiohttp>=3.7.4` - Asynchronous HTTP client
-- `python-dotenv>=1.2.1` - Environment variable management
+- `discord.py` - Discord API wrapper
+- `colorama` - Colored terminal output
+- `aiohttp` - Asynchronous HTTP client
+- `python-dotenv` - Environment variable management
 
 ## Creating Custom Commands
 

@@ -10,7 +10,7 @@ def debug(msg: str):
 
 
 class ModerationAPIHelper:
-    ERROR_LOGIN_REQUIRED = "Please login first with /mod_login."
+    ERROR_LOGIN_REQUIRED = "You are not authorized to perform this action."
     ERROR_FORBIDDEN = "You do not have permission for this action."
     ERROR_NOT_FOUND = "Requested item was not found."
     ERROR_REQUEST_FAILED = "Moderation API request failed. Please try again."

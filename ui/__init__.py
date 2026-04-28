@@ -24,6 +24,7 @@ from .moderation_modals import (
     SystemEventCreateModal,
     SystemEventEditModal,
 )
+from .help_views import HelpPaginator
 from .player_embeds import (
     add_player_fields_to_embed,
     build_player_complaints_embed,
@@ -51,6 +52,7 @@ __all__ = [
     "AnnouncementEditModal",
     "SystemEventCreateModal",
     "SystemEventEditModal",
+    "HelpPaginator",
     "add_player_fields_to_embed",
     "build_player_complaints_embed",
     "build_banned_players_embed"

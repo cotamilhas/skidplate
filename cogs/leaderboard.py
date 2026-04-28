@@ -12,6 +12,11 @@ class Leaderboard(commands.Cog):
         self.bot = bot
         self.session = bot.http_session
         self.creation_fetcher = CreationDataFetcher(self.session, URL)
+        
+    leaderboard_group = app_commands.Group(
+        name="leaderboard",
+        description="Manage leaderboard entries"
+    )
 
     LEADERBOARD_TYPE_CHOICES = [
         app_commands.Choice(name="Daily", value="DAILY"),
@@ -43,9 +48,9 @@ class Leaderboard(commands.Cog):
     async def cog_unload(self):
         return None
 
-    @app_commands.command(
+    @leaderboard_group.command(
         name="hotlap",
-        description="Shows the top 10 fastest hotlap times (PS3)"
+        description="Shows the top 10 fastest hotlap times (MNR PS3)"
     )
     async def hotlap(self, interaction: discord.Interaction):
         await interaction.response.defer()

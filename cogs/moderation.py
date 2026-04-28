@@ -86,6 +86,31 @@ def has_moderator_role():
 
 
 class Moderation(commands.Cog):
+    moderators_group = app_commands.Group(
+        name="mod",
+        description="Moderator self-management commands (Moderator Only)"
+    )
+    players_group = app_commands.Group(
+        name="players",
+        description="Manage players (Moderator Only)"
+    )
+    creations_group = app_commands.Group(
+        name="creations",
+        description="Manage creations (Moderator Only)"
+    )
+    hotlap_group = app_commands.Group(
+        name="hotlap",
+        description="Manage the hotlap rotation (Moderator Only)"
+    )
+    announcements_group = app_commands.Group(
+        name="announcements",
+        description="Manage announcements (Moderator Only)"
+    )
+    whitelist_group = app_commands.Group(
+        name="whitelist",
+        description="Manage whitelist entries (Moderator Only)"
+    )
+
     def __init__(self, bot):
         self.bot = bot
         self.session = bot.http_session
@@ -379,13 +404,13 @@ class Moderation(commands.Cog):
             return None
 
     # ===== MODERATOR SELF MANAGEMENT =====
-    @app_commands.command(name="mod_login", description="Connect as API moderator (opens a modal)")
+    @moderators_group.command(name="login", description="Connect as API moderator (opens a modal)")
     @has_moderator_role()
     async def mod_login(self, interaction: discord.Interaction):
         debug(f"mod_login called by {interaction.user}")
         await interaction.response.send_modal(ModeratorLoginModal(self))
             
-    @app_commands.command(name="mod_create", description="Create a new moderator (opens a modal)")
+    @moderators_group.command(name="create", description="Create a new moderator (opens a modal)")
     @has_moderator_role()
     async def mod_create(self, interaction: discord.Interaction):
         debug(f"mod_create called by {interaction.user}")
@@ -401,7 +426,7 @@ class Moderation(commands.Cog):
             return
         await interaction.response.send_modal(ModeratorCreateModal(self))
 
-    @app_commands.command(name="mod_perms", description="View your moderation permissions")
+    @moderators_group.command(name="permissions", description="View your moderation permissions")
     @has_moderator_role()
     async def mod_perms(self, interaction: discord.Interaction):
         debug(f"mod_perms called by {interaction.user}")
@@ -426,7 +451,7 @@ class Moderation(commands.Cog):
         
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="mod_set_username", description="Change your moderator username")
+    @moderators_group.command(name="set-username", description="Change your moderator username")
     @app_commands.describe(username="New username")
     @has_moderator_role()
     async def mod_set_username(self, interaction: discord.Interaction, username: str):
@@ -442,7 +467,7 @@ class Moderation(commands.Cog):
 
         await self.send_success(interaction, f"Username changed to **{username}**", ephemeral=True)
 
-    @app_commands.command(name="mod_set_password", description="Change your moderator password")
+    @moderators_group.command(name="set-password", description="Change your moderator password")
     @app_commands.describe(password="New password")
     @has_moderator_role()
     async def mod_set_password(self, interaction: discord.Interaction, password: str):
@@ -459,7 +484,7 @@ class Moderation(commands.Cog):
         await self.send_success(interaction, "Password changed successfully", ephemeral=True)
 
     # ===== PLAYER MANAGEMENT =====
-    @app_commands.command(name="ban_player", description="Ban or unban player")
+    @players_group.command(name="ban", description="Ban or unban a player")
     @app_commands.describe(username="Player username", ban="True to ban, False to unban")
     @has_moderator_role()
     async def ban_player(self, interaction: discord.Interaction, username: str, ban: bool):
@@ -502,7 +527,7 @@ class Moderation(commands.Cog):
         finally:
             cleanup_temp_file(temp_avatar_path)
 
-    @app_commands.command(name="set_player_settings", description="Modify player settings (show no previews, allow opposite platform)")
+    @players_group.command(name="set-settings", description="Modify player settings")
     @app_commands.describe(
         username="Player username",
         show_no_previews="Show creations without previews",
@@ -556,7 +581,7 @@ class Moderation(commands.Cog):
 
         await self.send_success(interaction, f"Settings updated for **{username}**", ephemeral=True)
         
-    @app_commands.command(name="set_player_quota", description="Change a player's creation quota")
+    @players_group.command(name="set-quota", description="Change a player's creation quota")
     @app_commands.describe(username="Player username", quota=f"New quota (integer between 0 and {MAX_QUOTA})")
     @has_moderator_role()
     async def set_player_quota(self, interaction: discord.Interaction, username: str, quota: int):
@@ -590,7 +615,7 @@ class Moderation(commands.Cog):
             ephemeral=True
         )
         
-    @app_commands.command(name="banned_players", description="List banned players")
+    @players_group.command(name="banned", description="List banned players")
     @has_moderator_role()
     async def banned_players(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -610,8 +635,8 @@ class Moderation(commands.Cog):
         sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = sent_message
         
-    @app_commands.command(
-        name="reset_player",
+    @players_group.command(
+        name="reset",
         description="Reset a player's profile stats (XP, wins, streaks, etc). Optionally delete their creations too."
     )
     @app_commands.describe(
@@ -658,7 +683,7 @@ class Moderation(commands.Cog):
         )
         
     # ===== PLAYER CREATION MANAGEMENT =====
-    @app_commands.command(name="ban_creation", description="Ban or approve a creation")
+    @creations_group.command(name="ban", description="Ban or approve a creation")
     @app_commands.describe(creation_id="Creation ID", banned="True to ban, False to approve")
     @has_moderator_role()
     async def creation_set_status(self, interaction: discord.Interaction, creation_id: int, banned: bool):
@@ -682,7 +707,7 @@ class Moderation(commands.Cog):
             creation_id=creation_id
         )
         
-    @app_commands.command(name="reset_creation", description="Reset a creation's stats (views, downloads, points, comments, ratings, reviews)")
+    @creations_group.command(name="reset", description="Reset a creation's stats")
     @app_commands.describe(creation_id="Creation ID to reset stats for")
     @has_moderator_role()
     async def reset_creation(self, interaction: discord.Interaction, creation_id: int):
@@ -709,7 +734,7 @@ class Moderation(commands.Cog):
             creation_id=creation_id
         )
         
-    @app_commands.command(name="banned_creations", description="List banned creations")
+    @creations_group.command(name="banned", description="List banned creations")
     @has_moderator_role()
     async def banned_creations(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -730,14 +755,14 @@ class Moderation(commands.Cog):
         view.message = sent_message
         
     # ===== PLAYER/CREATION REPORTS & COMPLAINTS =====
-    @app_commands.command(name="player_complaints", description="View player complaints with pagination")
+    @players_group.command(name="complaints", description="View player complaints with pagination")
     @app_commands.describe(page="Page number to open")
     @has_moderator_role()
     async def player_complaints(self, interaction: discord.Interaction, page: int = 1):
         await interaction.response.defer(ephemeral=True)
         await self.start_complaints_paginator(interaction, "/player_complaints", "player", page)
 
-    @app_commands.command(name="creation_complaints", description="View creation complaints with pagination")
+    @creations_group.command(name="complaints", description="View creation complaints with pagination")
     @app_commands.describe(page="Page number to open")
     @has_moderator_role()
     async def creation_complaints(self, interaction: discord.Interaction, page: int = 1):
@@ -745,7 +770,7 @@ class Moderation(commands.Cog):
         await self.start_complaints_paginator(interaction, "/player_creation_complaints", "creation", page)
         
     # ===== HOTLAP MANAGEMENT =====
-    @app_commands.command(name="get_hotlap", description="Show current hotlap track")
+    @hotlap_group.command(name="get", description="Show current hotlap track")
     @has_moderator_role()
     async def get_hotlap(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -762,7 +787,7 @@ class Moderation(commands.Cog):
             creation_id=creation_id
         )
 
-    @app_commands.command(name="set_hotlap", description="Set hotlap by creation ID")
+    @hotlap_group.command(name="set", description="Set hotlap by creation ID")
     @app_commands.describe(creation_id="Creation ID to set as hotlap")
     @has_moderator_role()
     async def set_hotlap(self, interaction: discord.Interaction, creation_id: int):
@@ -786,7 +811,7 @@ class Moderation(commands.Cog):
             footer=f"Set by {interaction.user.display_name}"
         )
 
-    @app_commands.command(name="reset_hotlap", description="Reset the current hotlap")
+    @hotlap_group.command(name="reset", description="Reset the current hotlap")
     @has_moderator_role()
     async def reset_hotlap(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -803,7 +828,7 @@ class Moderation(commands.Cog):
         embed.set_footer(text=f"Reset by {interaction.user.display_name}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="hotlap_until_next", description="Get time until next hotlap")
+    @hotlap_group.command(name="until-next", description="Get time until next hotlap")
     @has_moderator_role()
     async def hotlap_until_next(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -841,7 +866,7 @@ class Moderation(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="hotlap_queue", description="List the hotlap queue")
+    @hotlap_group.command(name="queue", description="List the hotlap queue")
     @app_commands.describe(page="Page number")
     @has_moderator_role()
     async def hotlap_queue(self, interaction: discord.Interaction, page: int = 1):
@@ -861,7 +886,7 @@ class Moderation(commands.Cog):
         sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = sent_message
 
-    @app_commands.command(name="hotlap_queue_add", description="Add a creation to the hotlap queue")
+    @hotlap_group.command(name="queue-add", description="Add a creation to the hotlap queue")
     @app_commands.describe(creation_id="Creation ID to add to queue")
     @has_moderator_role()
     async def hotlap_queue_add(self, interaction: discord.Interaction, creation_id: int):
@@ -885,7 +910,7 @@ class Moderation(commands.Cog):
             footer=f"Added by {interaction.user.display_name}"
         )
 
-    @app_commands.command(name="hotlap_queue_remove", description="Remove a creation from the hotlap queue by index or creation ID")
+    @hotlap_group.command(name="queue-remove", description="Remove a creation from the hotlap queue by index or creation ID")
     @app_commands.describe(index="Queue index to remove", creation_id="Creation ID to remove")
     @has_moderator_role()
     async def hotlap_queue_remove(self, interaction: discord.Interaction, index: Optional[int] = None, creation_id: Optional[int] = None):
@@ -904,7 +929,7 @@ class Moderation(commands.Cog):
         await self.send_success(interaction, 'Hotlap removed from queue.')
         
     # ===== ANNOUNCEMENTS =====
-    @app_commands.command(name="announce_list", description="List announcements")
+    @announcements_group.command(name="list", description="List announcements")
     @app_commands.describe(page="Page (default: 1)", platform="Platform (optional)")
     @app_commands.choices(platform=PLATFORM_CHOICES)
     @has_moderator_role()
@@ -931,7 +956,7 @@ class Moderation(commands.Cog):
         sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = sent_message
 
-    @app_commands.command(name="announce_create", description="Create an announcement (opens a modal)")
+    @announcements_group.command(name="create", description="Create an announcement (opens a modal)")
     @has_moderator_role()
     async def announce_create(
         self,
@@ -949,7 +974,7 @@ class Moderation(commands.Cog):
             return
         await interaction.response.send_modal(AnnouncementCreateModal(self))
 
-    @app_commands.command(name="announce_edit", description="Edit an announcement (opens a modal)")
+    @announcements_group.command(name="edit", description="Edit an announcement (opens a modal)")
     @app_commands.describe(announcement_id="Announcement ID")
     @has_moderator_role()
     async def announce_edit(
@@ -1024,7 +1049,7 @@ class Moderation(commands.Cog):
             )
         )
 
-    @app_commands.command(name="announce_delete", description="Delete an announcement")
+    @announcements_group.command(name="delete", description="Delete an announcement")
     @app_commands.describe(announcement_id="Announcement ID")
     @has_moderator_role()
     async def announce_delete(self, interaction: discord.Interaction, announcement_id: int):
@@ -1158,7 +1183,7 @@ class Moderation(commands.Cog):
     #     await self.send_success(interaction, f"System event `{event_id}` deleted.", ephemeral=True)
         
     # ===== WHITELIST MANAGEMENT =====
-    @app_commands.command(name="whitelist_list", description="List whitelist entries")
+    @whitelist_group.command(name="list", description="List whitelist entries")
     @app_commands.describe(page="Page (default: 1)")
     @has_moderator_role()
     async def whitelist_list(self, interaction: discord.Interaction, page: int = 1):
@@ -1180,7 +1205,7 @@ class Moderation(commands.Cog):
         sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = sent_message
 
-    @app_commands.command(name="whitelist_add", description="Add a username to the whitelist")
+    @whitelist_group.command(name="add", description="Add a username to the whitelist")
     @app_commands.describe(username="Username to whitelist")
     @has_moderator_role()
     async def whitelist_add(self, interaction: discord.Interaction, username: str):
@@ -1195,7 +1220,7 @@ class Moderation(commands.Cog):
         message = f"Added **{username}** to the whitelist."
         await self.send_success(interaction, message, ephemeral=True)
 
-    @app_commands.command(name="whitelist_update", description="Rename a whitelist username")
+    @whitelist_group.command(name="update", description="Rename a whitelist username")
     @app_commands.describe(old_username="Current whitelisted username", new_username="New username")
     @has_moderator_role()
     async def whitelist_update(self, interaction: discord.Interaction, old_username: str, new_username: str):
@@ -1215,7 +1240,7 @@ class Moderation(commands.Cog):
         message = f"Updated whitelist username from **{old_username}** to **{new_username}**."
         await self.send_success(interaction, message, ephemeral=True)
 
-    @app_commands.command(name="whitelist_remove", description="Remove a username from the whitelist")
+    @whitelist_group.command(name="remove", description="Remove a username from the whitelist")
     @app_commands.describe(username="Username to remove from the whitelist")
     @has_moderator_role()
     async def whitelist_remove(self, interaction: discord.Interaction, username: str):
@@ -1231,7 +1256,7 @@ class Moderation(commands.Cog):
         await self.send_success(interaction, message, ephemeral=True)
     
     # ===== MODERATOR MANAGEMENT =====
-    @app_commands.command(name="mod_list", description="List all moderators")
+    @moderators_group.command(name="list", description="List all moderators")
     @app_commands.describe(page="Page (default: 1)")
     @has_moderator_role()
     async def mod_list(self, interaction: discord.Interaction, page: int = 1):
@@ -1253,7 +1278,7 @@ class Moderation(commands.Cog):
         sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = sent_message
 
-    @app_commands.command(name="mod_get", description="Get specific moderator details")
+    @moderators_group.command(name="get", description="Get specific moderator details")
     @app_commands.describe(username="Moderator username")
     @has_moderator_role()
     async def mod_get(self, interaction: discord.Interaction, username: str):
@@ -1290,7 +1315,7 @@ class Moderation(commands.Cog):
             debug(f"Error in mod_get: {str(e)}")
             await self.send_error(interaction, f"```{str(e)}```", ephemeral=True)
 
-    @app_commands.command(name="mod_set_permissions", description="Update moderator permissions")
+    @moderators_group.command(name="set-permissions", description="Update moderator permissions")
     @app_commands.describe(
         username="Moderator username",
         permission="Permission to update",
@@ -1342,7 +1367,7 @@ class Moderation(commands.Cog):
             ephemeral=True
         )
 
-    @app_commands.command(name="mod_delete", description="Delete a moderator")
+    @moderators_group.command(name="delete", description="Delete a moderator")
     @app_commands.describe(username="Moderator username")
     @has_moderator_role()
     async def mod_delete(self, interaction: discord.Interaction, username: str):

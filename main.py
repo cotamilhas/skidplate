@@ -7,6 +7,7 @@ import asyncio
 from datetime import datetime, timezone
 from colorama import Fore, Style, init
 from config import TOKEN, COMMAND_PREFIX, EMBED_COLOR, INTENTS, DEBUG_MODE
+from ui.help_views import HelpPaginator
 from utils import debug
 
 init(autoreset=True)
@@ -43,138 +44,143 @@ async def load_cogs():
             except Exception as e:
                 print(f"{Fore.RED}Failed to load {extension}: {e}{Style.RESET_ALL}")
 
-# TODO: better help command, moderation cog has a lot of commands which breaks the embed field limit, maybe paginated help commands...
 @bot.tree.command(name="help", description="Displays the help menu.")
-@app_commands.describe(command="The command you want to get help with.")
+@app_commands.describe(command="The command you want to get help with (e.g., 'players ban' for grouped commands).")
 async def help_command(interaction: discord.Interaction, command: str = None):
     def chunk_lines(lines: list[str], max_len: int = 1024) -> list[str]:
-        chunks: list[str] = []
-        current: list[str] = []
-        current_len = 0
-
+        chunks, current, current_len = [], [], 0
         for line in lines:
             if len(line) > max_len:
                 line = line[: max_len - 3].rstrip() + "..."
-
             extra_len = len(line) + (1 if current else 0)
             if current and current_len + extra_len > max_len:
                 chunks.append("\n".join(current))
-                current = [line]
-                current_len = len(line)
+                current, current_len = [line], len(line)
             else:
                 current.append(line)
                 current_len += extra_len
-
         if current:
             chunks.append("\n".join(current))
-
         return chunks
 
-    embed = discord.Embed(
-        title=f"Help for {bot.user.name}",
-        color=EMBED_COLOR,
-        timestamp=datetime.now(timezone.utc)
-    )
-    command_categories = {}
+    def count_leaf_commands(group: app_commands.Group) -> int:
+        total = 0
+        for sub in group.commands:
+            if isinstance(sub, app_commands.Group):
+                total += count_leaf_commands(sub)
+            else:
+                total += 1
+        return total
 
-    for cog_name, cog in bot.cogs.items():
-        commands_list = cog.get_app_commands()
-        if commands_list:
-            command_categories[cog_name] = commands_list
+    def get_compact_commands(commands_list):
+        for cmd in commands_list:
+            description = cmd.description or "No description."
+            if isinstance(cmd, app_commands.Group):
+                sub_count = count_leaf_commands(cmd)
+                suffix = f" ({sub_count} subcommands)" if sub_count else ""
+                yield f"`/{cmd.qualified_name}` - {description}{suffix}"
+            else:
+                yield f"`/{cmd.qualified_name}` - {description}"
+
+    def find_command(cmd_name: str):
+        parts = cmd_name.strip().lstrip("/").split()
+        resolved = bot.tree.get_command(parts[0])
+        for part in parts[1:]:
+            if not isinstance(resolved, app_commands.Group):
+                return None
+            resolved = discord.utils.get(resolved.commands, name=part)
+        return resolved
 
     if not command:
-        max_category_fields = 24 
-        used_fields = 0
-        truncated_output = False
+        pages = []
+        for cog_name, cog in bot.cogs.items():
+            cog_commands = cog.get_app_commands()
+            if not cog_commands:
+                continue
+            lines = list(get_compact_commands(cog_commands))
+            chunks = chunk_lines(lines)
+            fields = [{"name": cog_name, "value": chunk} for chunk in chunks]
+            pages.append({"category": cog_name, "fields": fields})
 
-        for category, commands_list in command_categories.items():
-            lines = [
-                f"`/{cmd.name}` - {cmd.description or 'No description provided.'}"
-                for cmd in commands_list
-            ]
-            category_chunks = chunk_lines(lines)
+        if not pages:
+            pages.append({"category": "Help", "fields": [{"name": "No Commands", "value": "No commands loaded."}]})
 
-            for index, chunk in enumerate(category_chunks):
-                if used_fields >= max_category_fields:
-                    truncated_output = True
-                    break
-
-                field_name = category if index == 0 else f"{category} (cont.)"
-                embed.add_field(name=field_name, value=chunk, inline=False)
-                used_fields += 1
-
-            if truncated_output:
-                break
-
-        details_text = "Use `/help <command>` to get detailed info about a specific command."
-        if truncated_output:
-            details_text = (
-                "Use `/help <command>` to get detailed info about a specific command.\n"
-                "Some categories were omitted because the embed reached Discord field limits."
-            )
-
-        embed.add_field(
-            name="Command Details",
-            value=details_text,
-            inline=False
+        paginator = HelpPaginator(
+            interaction.user.id,
+            pages=pages,
+            bot_name=bot.user.name,
+            requester_name=interaction.user.name,
+            requester_avatar_url=interaction.user.display_avatar.url,
+            bot_avatar_url=bot.user.display_avatar.url,
         )
+        paginated_embed, error = await paginator.initialize()
+        if error or not paginated_embed:
+            await interaction.response.send_message(error or "Failed to build help.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=paginated_embed, view=paginator)
+        paginator.message = await interaction.original_response()
     else:
-        cmd = bot.tree.get_command(command)
+        embed = discord.Embed(title=f"Help for {bot.user.name}", color=EMBED_COLOR)
+        cmd = find_command(command)
         if cmd:
-            params = []
+            command_params = []
             if hasattr(cmd, "parameters"):
-                for param in cmd.parameters:
-                    params.append(f"`{param.name}`: {param.description}")
+                command_params = list(cmd.parameters)
             elif hasattr(cmd, "_params"):
-                params = [f"`{param.name}`: {param.description}" for param in cmd._params.values()]
+                command_params = list(cmd._params.values())
 
-            usage = f"/{cmd.name}"
-            if params:
-                usage += " " + " ".join(
-                    [f"<{param.name}>" for param in (cmd.parameters if hasattr(cmd, "parameters") else cmd._params.values())]
-                )
+            params = [f"`{p.name}`: {p.description}" for p in command_params]
+            usage = f"/{cmd.qualified_name}" + (" " + " ".join(f"<{p.name}>" for p in command_params) if command_params else "")
+            embed.add_field(name=f"Command: /{cmd.qualified_name}", value=f"**Description:** {cmd.description}\n**Usage:** `{usage}`", inline=False)
 
-            embed.add_field(
-                name=f"Command: /{cmd.name}",
-                value=f"**Description:** {cmd.description}\n**Usage:** `{usage}`",
-                inline=False
-            )
+            if isinstance(cmd, app_commands.Group) and cmd.commands:
+                subcommand_lines = [f"`/{sub.qualified_name}` - {sub.description or 'No description.'}" for sub in cmd.commands]
+                for chunk in chunk_lines(subcommand_lines):
+                    embed.add_field(name="Subcommands", value=chunk, inline=False)
+
             if params:
-                embed.add_field(
-                    name="Parameters",
-                    value="\n".join(params),
-                    inline=False
-                )
+                embed.add_field(name="Parameters", value="\n".join(params), inline=False)
         else:
-            embed.add_field(
-                name="Command not found",
-                value="No such command was found. Please check the name and try again.",
-                inline=False
-            )
-
-    embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.avatar.url)
-    embed.set_thumbnail(url=bot.user.avatar.url)
-    await interaction.response.send_message(embed=embed)
+            embed.add_field(name="Command not found", value="No such command was found.", inline=False)
+        embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.display_avatar.url)
+        embed.set_thumbnail(url=bot.user.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
 
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
     if not DEBUG_MODE:
         return
 
-    BLACKLIST = {"mod_login", "mod_set_username", "mod_set_password"}
+    BLACKLIST = {"moderators login", "moderators set-username", "moderators set-password"}
     
     if interaction.type == discord.InteractionType.application_command:
-        if interaction.command.name in BLACKLIST:
+        cmd_name = interaction.command.qualified_name if hasattr(interaction.command, 'qualified_name') else interaction.command.name
+        if cmd_name in BLACKLIST:
             return
 
         params = ""
         if hasattr(interaction, "data") and "options" in interaction.data:
             options = interaction.data["options"]
-            params = " | Params: " + ", ".join(
-                f"{Fore.YELLOW}{opt['name']}{Style.RESET_ALL}="
-                f"{Fore.MAGENTA}{opt.get('value', '')}{Style.RESET_ALL}"
-                for opt in options
-            )
+
+            def extract_param_options(raw_options):
+                extracted = []
+                for opt in raw_options:
+                    nested = opt.get("options")
+                    if isinstance(nested, list) and nested:
+                        extracted.extend(extract_param_options(nested))
+                        continue
+
+                    if "value" in opt:
+                        extracted.append(opt)
+                return extracted
+
+            param_options = extract_param_options(options)
+            if param_options:
+                params = " | Params: " + ", ".join(
+                    f"{Fore.YELLOW}{opt['name']}{Style.RESET_ALL}="
+                    f"{Fore.MAGENTA}{opt['value']}{Style.RESET_ALL}"
+                    for opt in param_options
+                )
 
         if interaction.guild:
             location = (
@@ -185,7 +191,7 @@ async def on_interaction(interaction: discord.Interaction):
             location = f"{Fore.MAGENTA}(DM){Style.RESET_ALL}"
 
         print(
-            f"[COMMAND] {Fore.CYAN}/{interaction.command.name}{Style.RESET_ALL}{params} "
+            f"[COMMAND] {Fore.CYAN}/{cmd_name}{Style.RESET_ALL}{params} "
             f"| User: {Fore.GREEN}{interaction.user}{Style.RESET_ALL} "
             f"| {location}"
         )
@@ -223,7 +229,7 @@ async def on_ready():
     if instance_name:
         print(f"Connected to: {instance_name} ({api_url})")
     else:
-        print("Could not retrieve instance name from API.")
+        print(f"Could not retrieve instance name from ({api_url})")
         print("Shutting down bot...")
         await bot.close()
 
