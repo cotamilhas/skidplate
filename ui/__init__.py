@@ -14,7 +14,8 @@ from .moderation_views import (
     WhitelistPaginator,
     AnnouncementsPaginator,
     SystemEventsPaginator,
-    HotlapQueuePaginator
+    HotlapQueuePaginator,
+    ConfirmActionView
 )
 from .moderation_modals import (
     ModeratorLoginModal,
@@ -46,6 +47,7 @@ __all__ = [
     "AnnouncementsPaginator",
     "SystemEventsPaginator",
     "HotlapQueuePaginator",
+    "ConfirmActionView",
     "ModeratorLoginModal",
     "ModeratorCreateModal",
     "AnnouncementCreateModal",

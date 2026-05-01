@@ -610,3 +610,46 @@ class HotlapQueuePaginator(BasePaginatorView):
             )
 
         return embed
+
+
+class ConfirmActionView(discord.ui.View):
+    def __init__(self, invoker_id: int, *, timeout: float = 60.0):
+        super().__init__(timeout=timeout)
+        self.invoker_id = invoker_id
+        self.confirmed: Optional[bool] = None
+        self.message: Optional[discord.Message] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.invoker_id:
+            await interaction.response.send_message(
+                "Only the person who triggered this action can confirm it.",
+                ephemeral=True
+            )
+            return False
+        return True
+
+    def _disable_all(self):
+        for item in self.children:
+            item.disabled = True
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.danger, emoji="✅")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.confirmed = True
+        self._disable_all()
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    @discord.ui.button(label="No", style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.confirmed = False
+        self._disable_all()
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    async def on_timeout(self):
+        self._disable_all()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass

@@ -14,7 +14,8 @@ from ui import (
     WhitelistPaginator,
     AnnouncementsPaginator,
     SystemEventsPaginator,
-    HotlapQueuePaginator
+    HotlapQueuePaginator,
+    ConfirmActionView
 )
 from ui.moderation_modals import (
     ModeratorLoginModal,
@@ -173,6 +174,22 @@ class Moderation(commands.Cog):
             color=discord.Color.green(),
             ephemeral=ephemeral
         )
+
+    async def _ensure_logged_in_or_error(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id in self.user_tokens:
+            return True
+
+        embed = self._embed(
+            title="Error",
+            description=self.moderation_api.ERROR_LOGIN_REQUIRED,
+            color=discord.Color.red()
+        )
+
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        return False
 
     async def _resolve_player_id_or_error(self, interaction: discord.Interaction, username: str) -> Optional[str]:
         player_id = await self.player_fetcher.get_player_id(username)
@@ -611,7 +628,7 @@ class Moderation(commands.Cog):
 
         await self.send_success(
             interaction,
-            f"Quota for **{username}** (ID `{player_id}`) changed to **{quota}**.",
+            f"Quota for **{username}** changed to **{quota}**.",
             ephemeral=True
         )
         
@@ -651,6 +668,8 @@ class Moderation(commands.Cog):
         remove_creations: bool = False
     ):
         debug(f"reset_player called by {interaction.user} for {username}, remove_creations={remove_creations}")
+        if not await self._ensure_logged_in_or_error(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
 
         user_id = interaction.user.id
@@ -659,28 +678,122 @@ class Moderation(commands.Cog):
         if player_id is None:
             return
 
-        params = {
-            "removeCreations": str(remove_creations).lower(),
-        }
+        avatar_url = await self.player_fetcher.get_player_avatar(player_id)
+        avatar_file, avatar_attach_url, temp_path = await prepare_player_avatar_attachment(
+            self.session, avatar_url, player_id
+        )
+
+        embed = discord.Embed(
+            title="Confirm: Reset Player Profile",
+            description=(
+                f"Are you sure you want to reset the profile stats for **{username}**?"
+                f"\nRemove Creations: **{remove_creations}**"
+                "\n\nThis action is **irreversible**."
+            ),
+            color=discord.Color.orange()
+        )
+        embed.set_thumbnail(url=avatar_attach_url)
+
+        view = ConfirmActionView(invoker_id=interaction.user.id)
+        msg = await interaction.followup.send(embed=embed, file=avatar_file, view=view, ephemeral=True, wait=True)
+        view.message = msg
+        cleanup_temp_file(temp_path)
+
+        await view.wait()
+
+        if not view.confirmed:
+            cancel_embed = discord.Embed(description="Action cancelled.", color=discord.Color.greyple())
+            await msg.edit(embed=cancel_embed, attachments=[])
+            return
 
         data, error = await self.api_request(
             "DELETE",
             f"/users/{player_id}/stats",
             user_id,
-            params=params,
+            params={"removeCreations": str(remove_creations).lower()},
         )
         debug(f"Reset player profile result: {data}, error: {error}")
 
         if error:
-            await self.send_error(interaction, error, ephemeral=True)
+            error_embed = discord.Embed(description=f"Error: {error}", color=discord.Color.red())
+            await msg.edit(embed=error_embed, attachments=[])
             return
 
-        await self.send_success(
-            interaction,
-            f"Profile reset for **{username}** (ID `{player_id}`).\n"
-            f"Remove Creations: **{remove_creations}**",
-            ephemeral=True
+        success_embed = discord.Embed(
+            description=(
+                f"Profile reset for **{username}**."
+                f"\nRemove Creations: **{remove_creations}**"
+            ),
+            color=discord.Color.green()
         )
+        await msg.edit(embed=success_embed, attachments=[])
+        
+    @players_group.command(
+        name="delete",
+        description="Delete a player account. This is NOT the same as reset."
+    )
+    @app_commands.describe(username="Player username")
+    @has_moderator_role()
+    async def delete_player(
+        self,
+        interaction: discord.Interaction,
+        username: str
+    ):
+        debug(f"delete_player called by {interaction.user} for {username}")
+        if not await self._ensure_logged_in_or_error(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+
+        user_id = interaction.user.id
+
+        player_id = await self._resolve_player_id_or_error(interaction, username)
+        if player_id is None:
+            return
+
+        avatar_url = await self.player_fetcher.get_player_avatar(player_id)
+        avatar_file, avatar_attach_url, temp_path = await prepare_player_avatar_attachment(
+            self.session, avatar_url, player_id
+        )
+
+        embed = discord.Embed(
+            title="Confirm: Delete Player Account",
+            description=(
+                f"Are you sure you want to **permanently delete** the account of **{username}**?"
+                "\n\nThis action is **irreversible**."
+            ),
+            color=discord.Color.orange()
+        )
+        embed.set_thumbnail(url=avatar_attach_url)
+
+        view = ConfirmActionView(invoker_id=interaction.user.id)
+        msg = await interaction.followup.send(embed=embed, file=avatar_file, view=view, ephemeral=True, wait=True)
+        view.message = msg
+        cleanup_temp_file(temp_path)
+
+        await view.wait()
+
+        if not view.confirmed:
+            cancel_embed = discord.Embed(description="Action cancelled.", color=discord.Color.greyple())
+            await msg.edit(embed=cancel_embed, attachments=[])
+            return
+
+        data, error = await self.api_request(
+            "DELETE",
+            f"/users/{player_id}",
+            user_id
+        )
+        debug(f"Remove user result: {data}, error: {error}")
+
+        if error:
+            error_embed = discord.Embed(description=f"Error: {error}", color=discord.Color.red())
+            await msg.edit(embed=error_embed, attachments=[])
+            return
+
+        success_embed = discord.Embed(
+            description=f"Player **{username}** was deleted.",
+            color=discord.Color.green()
+        )
+        await msg.edit(embed=success_embed, attachments=[])
         
     # ===== PLAYER CREATION MANAGEMENT =====
     @creations_group.command(name="ban", description="Ban or approve a creation")
@@ -712,9 +825,40 @@ class Moderation(commands.Cog):
     @has_moderator_role()
     async def reset_creation(self, interaction: discord.Interaction, creation_id: int):
         debug(f"reset_creation called by {interaction.user} - creation_id: {creation_id}")
+        if not await self._ensure_logged_in_or_error(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
 
         user_id = interaction.user.id
+
+        creation_info = await self.creation_fetcher.get_creation_info(creation_id)
+        creation_name = creation_info.get("name", "Unknown") if creation_info else "Unknown"
+
+        embed = discord.Embed(
+            title="Confirm: Reset Creation Stats",
+            description=(
+                f"Are you sure you want to reset all stats for **{creation_name}** (ID `{creation_id}`)?"
+                "\n\nThis action is **irreversible**."
+            ),
+            color=discord.Color.orange()
+        )
+
+        preview_bytes = await self.get_creation_preview_bytes(creation_id)
+        files = []
+        if preview_bytes:
+            embed.set_thumbnail(url="attachment://preview.png")
+            files = [discord.File(BytesIO(preview_bytes), filename="preview.png")]
+
+        view = ConfirmActionView(invoker_id=interaction.user.id)
+        msg = await interaction.followup.send(embed=embed, files=files, view=view, ephemeral=True, wait=True)
+        view.message = msg
+
+        await view.wait()
+
+        if not view.confirmed:
+            cancel_embed = discord.Embed(description="Action cancelled.", color=discord.Color.greyple())
+            await msg.edit(embed=cancel_embed, attachments=[])
+            return
 
         data, error = await self.api_request(
             "DELETE",
@@ -724,15 +868,15 @@ class Moderation(commands.Cog):
         debug(f"Reset creation stats result: {data}, error: {error}")
 
         if error:
-            await self.send_error(interaction, error, ephemeral=True)
+            error_embed = discord.Embed(description=f"Error: {error}", color=discord.Color.red())
+            await msg.edit(embed=error_embed, attachments=[])
             return
 
-        await self._send_creation_status_embed(
-            interaction,
-            title="Creation Stats Reset",
-            color=discord.Color.green(),
-            creation_id=creation_id
+        success_embed = discord.Embed(
+            description=f"Stats reset for **{creation_name}** (ID `{creation_id}`).",
+            color=discord.Color.green()
         )
+        await msg.edit(embed=success_embed, attachments=[])
         
     @creations_group.command(name="banned", description="List banned creations")
     @has_moderator_role()
@@ -753,6 +897,73 @@ class Moderation(commands.Cog):
 
         sent_message = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = sent_message
+        
+    @creations_group.command(
+        name="delete",
+        description="Delete ALL creations from a player (does not delete the user)."
+    )
+    @app_commands.describe(username="Player username")
+    @has_moderator_role()
+    async def delete_player_creations(
+        self,
+        interaction: discord.Interaction,
+        username: str
+    ):
+        debug(f"delete_player_creations called by {interaction.user} for {username}")
+        if not await self._ensure_logged_in_or_error(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+
+        user_id = interaction.user.id
+
+        player_id = await self._resolve_player_id_or_error(interaction, username)
+        if player_id is None:
+            return
+
+        avatar_url = await self.player_fetcher.get_player_avatar(player_id)
+        avatar_file, avatar_attach_url, temp_path = await prepare_player_avatar_attachment(
+            self.session, avatar_url, player_id
+        )
+
+        embed = discord.Embed(
+            title="Confirm: Delete All Player Creations",
+            description=(
+                f"Are you sure you want to delete **all creations** from **{username}**?"
+                "\n\nThis action is **irreversible**."
+            ),
+            color=discord.Color.orange()
+        )
+        embed.set_thumbnail(url=avatar_attach_url)
+
+        view = ConfirmActionView(invoker_id=interaction.user.id)
+        msg = await interaction.followup.send(embed=embed, file=avatar_file, view=view, ephemeral=True, wait=True)
+        view.message = msg
+        cleanup_temp_file(temp_path)
+
+        await view.wait()
+
+        if not view.confirmed:
+            cancel_embed = discord.Embed(description="Action cancelled.", color=discord.Color.greyple())
+            await msg.edit(embed=cancel_embed, attachments=[])
+            return
+
+        data, error = await self.api_request(
+            "DELETE",
+            f"/users/{player_id}/creations",
+            user_id
+        )
+        debug(f"Remove player creations result: {data}, error: {error}")
+
+        if error:
+            error_embed = discord.Embed(description=f"Error: {error}", color=discord.Color.red())
+            await msg.edit(embed=error_embed, attachments=[])
+            return
+
+        success_embed = discord.Embed(
+            description=f"All creations from **{username}** were deleted.",
+            color=discord.Color.green()
+        )
+        await msg.edit(embed=success_embed, attachments=[])
         
     # ===== PLAYER/CREATION REPORTS & COMPLAINTS =====
     @players_group.command(name="complaints", description="View player complaints with pagination")
