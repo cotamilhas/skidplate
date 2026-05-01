@@ -151,7 +151,7 @@ async def on_interaction(interaction: discord.Interaction):
     if not DEBUG_MODE:
         return
 
-    BLACKLIST = {"moderators login", "moderators set-username", "moderators set-password"}
+    BLACKLIST = {"mod login", "mod set-username", "mod set-password"}
     
     if interaction.type == discord.InteractionType.application_command:
         cmd_name = interaction.command.qualified_name if hasattr(interaction.command, 'qualified_name') else interaction.command.name
