@@ -203,7 +203,7 @@ class Creation(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="creation_id", description="Get a creation's stats by its ID")
+    @app_commands.command(name="creation_id", description="Get a creation's stats by its ID.")
     @app_commands.describe(creation_id="The creation ID to get stats for")
     async def creation_id(self, interaction: discord.Interaction, creation_id: int) -> None:
         if creation_id < 10000:
@@ -241,7 +241,7 @@ class Creation(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
         
-    @app_commands.command(name="creation_query", description="Search creations by name")
+    @app_commands.command(name="creation_query", description="Search creations by name.")
     @app_commands.describe(
         creation_name="Name to search",
         creation_type="Type of creation",
@@ -277,7 +277,7 @@ class Creation(commands.Cog):
             }
         )
 
-    @app_commands.command(name="creation_player", description="Search creations by player username")
+    @app_commands.command(name="creation_player", description="Search creations by player username.")
     @app_commands.describe(
         username="Player username to search",
         creation_type="Type of creation",
@@ -313,7 +313,7 @@ class Creation(commands.Cog):
             }
         )
 
-    @app_commands.command(name="topmods", description="Get the top mods")
+    @app_commands.command(name="topmods", description="Get the top mods.")
     async def topmods(
         self,
         interaction: discord.Interaction,
@@ -327,7 +327,7 @@ class Creation(commands.Cog):
         embed = build_topcreations_embed(top_mods, interaction, title="Top Mods")
         await interaction.response.send_message(embed=embed)
         
-    @app_commands.command(name="topkarts", description="Get the top karts")
+    @app_commands.command(name="topkarts", description="Get the top karts.")
     async def topkarts(
         self,
         interaction: discord.Interaction,
@@ -341,7 +341,7 @@ class Creation(commands.Cog):
         embed = build_topcreations_embed(top_karts, interaction, title="Top Karts")
         await interaction.response.send_message(embed=embed)
         
-    @app_commands.command(name="toptracks", description="Get the top tracks")
+    @app_commands.command(name="toptracks", description="Get the top tracks.")
     async def toptracks(
         self,
         interaction: discord.Interaction,

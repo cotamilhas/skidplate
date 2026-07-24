@@ -1,6 +1,10 @@
 # Skidplate
 
-A simple Python bot using `discord.py` to fetch player/creation data, server stats and it can be used for moderation (Soon™).
+A simple Discord bot for fetching player and creation data, viewing server statistics, and moderating a PLGarage instance (Soon™).
+
+# Notice
+
+Currently I'm focusing this project for ModNation Racers (PS3 only), feel free to contribute and add the support for LBP Karting and other platforms.
 
 ## Requirements
 
@@ -28,7 +32,3 @@ COMMAND_PREFIX=!
 ```bash
 python main.py
 ```
-
-# Notice
-
-Currently I'm focusing this project for ModNation Racers (PS3), feel free to contribute and add the support for LBPK and other platforms.

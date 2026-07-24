@@ -11,7 +11,7 @@ class Player(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="player", description="Get a player's stats")
+    @app_commands.command(name="player", description="Get a player's stats.")
     @app_commands.describe(username="The player to get stats for")
     async def player(self, interaction: discord.Interaction, username: str) -> None:
         player_stats = get_player_stats(username)
@@ -54,7 +54,7 @@ class Player(commands.Cog):
 
         await interaction.response.send_message(embed=embed, file=file)
         
-    @app_commands.command(name="avatar", description="Get a player's avatar")
+    @app_commands.command(name="avatar", description="Get a player's avatar.")
     @app_commands.describe(username="The player to get the avatar for")
     @app_commands.describe(avatar_type="Avatar type: 'primary' or 'secondary'")
     @app_commands.choices(avatar_type=[

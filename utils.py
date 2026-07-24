@@ -29,6 +29,8 @@ def rename_presence(presence):
         return "Creation Station"
     elif presence == "KART_PARK_CHALLENGE":
         return "Kart Park Challenge"
+    elif presence == "CASUAL_RACE":
+        return "Casual Race"
     elif presence == "RANKED_RACE":
         return "XP Race"
     elif presence == "ROAMING":
@@ -427,3 +429,71 @@ def get_toptracks():
         ]
 
     return "Error: Unable to fetch top tracks."
+
+def get_players_online_presence(is_mnr=None, page=1, per_page=6):
+    response = requests.get(f"{URL}/api/playercounts/presence?&isMnr={str(is_mnr).lower() if is_mnr is not None else 'true'}&page={page}&perPage={per_page}")
+
+    if response.status_code == 200:
+        r = response.json()
+        
+        if isinstance(r, dict):
+            return {
+                "total": r.get("total", 0),
+                "creations": [
+                    {
+                        "id": c.get("userId"),
+                        "username": c.get("username"),
+                        "presence": c.get("presence"),
+                        "platform": c.get("platform"),
+                        "IsMNR": c.get("isMNR"),
+                        "IsRpcn": c.get("isRpcn")
+                    }
+                    for c in r.get("presence", [])
+                ],
+            }
+        
+    return "Error: Unable to fetch players online count."
+
+def get_players_online_count():
+    response = requests.get(f"{URL}/api/playercounts/sessioncount")
+
+    if response.status_code == 200:
+        players_online = response.text
+        
+        return players_online
+        
+    return "Error: Unable to fetch players online count."
+
+def get_total_creations_count():
+    response = requests.get(f"{URL}/api/creationcount")
+
+    if response.status_code == 200:
+        r = response.json()
+        
+        return {
+            "totalMNR": r.get("totalMNR"),
+            "totalMods": r.get("mnr", {}).get("PS3", {}).get("CHARACTER"),
+            "totalKarts": r.get("mnr", {}).get("PS3", {}).get("KART"),
+            "totalTracks": r.get("mnr", {}).get("PS3", {}).get("TRACK")
+        }
+        
+    return "Error: Unable to fetch total creations count."
+
+def get_total_players_count():
+    response = requests.get(f"{URL}/api/playercounts")
+
+    if response.status_code == 200:
+        player_count = response.text
+        
+        if player_count.isdigit():
+            return player_count
+        
+    return "Error: Unable to fetch total players count."
+
+def get_instance_name():
+    response = requests.get(f"{URL}/api/GetInstanceName")
+
+    if response.status_code == 200:
+        return response.text
+
+    return "Error: Unable to fetch instance name."
