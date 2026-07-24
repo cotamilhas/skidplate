@@ -16,6 +16,10 @@ class Player(commands.Cog):
     async def player(self, interaction: discord.Interaction, username: str) -> None:
         player_stats = get_player_stats(username)
         
+        if player_stats == "Error: Player not found.":
+            await interaction.response.send_message(player_stats, ephemeral=True)
+            return
+        
         if isinstance(player_stats, str):
             await interaction.response.send_message(player_stats, ephemeral=True)
             return
@@ -38,7 +42,7 @@ class Player(commands.Cog):
             embed.color = discord.Color.green()
             
         embed.add_field(name="Star Rating", value=player_stats.get("starRating"), inline=False)
-        embed.add_field(name="Skill Level", value=player_stats.get("skillLevelName", "Unknown"), inline=True)
+        embed.add_field(name="Skill Level", value=player_stats.get("skillLevelName"), inline=True)
         embed.add_field(name="Online Races", value=player_stats.get("onlineRaces"), inline=True)
         embed.add_field(name="Online Wins", value=player_stats.get("onlineWins"), inline=True)
         embed.add_field(name="Creation XP", value=player_stats.get("creationPoints"), inline=True)

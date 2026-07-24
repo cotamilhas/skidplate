@@ -1,6 +1,6 @@
 # Skidplate
 
-A simple Python bot using `discord.py` to fetch player data and for moderation (Soon™).
+A simple Python bot using `discord.py` to fetch player/creation data, server stats and it can be used for moderation (Soon™).
 
 ## Requirements
 

@@ -2,9 +2,17 @@ import asyncio
 import os
 import discord
 import requests
+import logging
 from discord.ext import commands
 
 import config
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("skidplate")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -14,7 +22,7 @@ class Bot(commands.Bot):
         await load_extensions()
 
         synced = await self.tree.sync()
-        print(f"Synced {len(synced)} application commands.")
+        logger.info("Synced %s application commands.", len(synced))
 
 bot = Bot(
     command_prefix=config.COMMAND_PREFIX,
@@ -27,14 +35,19 @@ async def on_ready():
         return
     
     from config import URL
-    response = requests.get(f"{URL}/api/GetInstanceName")
+    try:
+        response = requests.get(f"{URL}/api/GetInstanceName", timeout=10)
+    except requests.RequestException as exc:
+        logger.error("Failed to retrieve instance name: %s", exc)
+        await bot.close()
+        return
     
     if response.status_code == 200:
         instance_name = response.text
-        print(f"Logged in as {bot.user} (ID: {bot.user.id})")
-        print(f"Connected to: {instance_name}")
+        logger.info("Logged in as %s (ID: %s)", bot.user, bot.user.id)
+        logger.info("Connected to: %s", instance_name)
     else:
-        print("Failed to retrieve instance name. Shutting down.")
+        logger.error("Failed to retrieve instance name. Shutting down.")
         await bot.close()
     
 async def load_extensions() -> None:
@@ -49,9 +62,9 @@ async def load_extensions() -> None:
 
             try:
                 await bot.load_extension(extension)
-                print(f"Loaded {extension}")
+                logger.info("Loaded extension: %s", extension)
             except Exception as e:
-                print(f"Failed loading {extension}: {e}")
+                logger.exception("Failed loading extension %s: %s", extension, e)
 
 async def main() -> None:
     if not config.TOKEN:

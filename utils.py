@@ -36,6 +36,16 @@ def rename_presence(presence):
     
     return presence.capitalize()
 
+def rename_creation_type(creation_type):
+    if creation_type == "CHARACTER":
+        return "Mod"
+    elif creation_type == "KART":
+        return "Kart"
+    elif creation_type == "TRACK":
+        return "Track"
+    
+    return creation_type.capitalize()
+
 def skill_level_id_to_image(id, embed):
     file_name = f"{id}.PNG"
     path = f"img/levels/{file_name}"
@@ -56,12 +66,30 @@ def get_player_id(username):
             return player_id
 
     return "Error: Unable to fetch player ID."
+
+# maybe creating an endpoint for plg
+def get_player_username(player_id):
+    response = requests.get(f"{URL}/api/player?id={player_id}")
+
+    if response.status_code == 200:
+        r = response.json()
+        
+        username = r.get("username")
+        if username:
+            return username
+
+    return "Error: Unable to fetch player username."
     
 def get_player_stats(username):
     response = requests.get(f"{URL}/api/player?username={username}")
 
     if response.status_code == 200:
         r = response.json()
+        
+        error = r.get("error")
+        
+        if error == "error_player_not_found":
+            return "Error: Player not found."
         
         return {
             "userId": r.get("userId"),
@@ -87,3 +115,315 @@ def get_player_stats(username):
         }
 
     return "Error: Unable to fetch player stats."
+
+def get_creation_stats(creation_id):
+    response = requests.get(f"{URL}/api/creation/{creation_id}")
+
+    if response.status_code == 200:
+        r = response.json()
+        
+        error = r.get("error")
+        
+        if error == "error_creation_not_found":
+            return "Error: Creation not found."
+        
+        is_track = r.get("type") == "TRACK"
+
+        return {
+            "id": r.get("playerCreationId"),
+            "name": r.get("name"),
+            "description": r.get("description"),
+            "rating": r.get("rating"),
+            "creatorUsername": r.get("creatorUsername"),
+            "type": r.get("type"),
+            "tags": r.get("tags"),
+            "isMNR": r.get("isMNR"),
+            "createdAt": r.get("createdAt"),
+            "downloads": r.get("downloads", {}).get("all_time"),
+            "views": r.get("views", {}).get("all_time"),
+            "points": r.get("points", {}).get("all_time"),
+
+            "bestLapTime": (
+                r.get("records", {}).get("bestLapTime")
+                if is_track else None
+            ),
+
+            "longestDrift": (
+                r.get("longestDrift", {}).get("longestDrift")
+                if is_track else None
+            ),
+
+            "longestHangTime": (
+                r.get("longestHangTime", {}).get("longestHangTime")
+                if is_track else None
+            )
+        }
+
+    return "Error: Unable to fetch creation stats."
+
+def get_creations_stats_by_query(
+    query,
+    creation_type=None,
+    platform=None,
+    is_mnr=None,
+    page=1,
+    per_page=6,
+):
+    params: dict[str, str | int] = {
+        "query": query,
+        "page": page,
+        "perPage": per_page,
+    }
+
+    if creation_type is not None:
+        params["type"] = creation_type
+
+    if platform is not None:
+        params["platform"] = platform
+
+    resolved_is_mnr = True if is_mnr is None else is_mnr
+    params["isMnr"] = str(resolved_is_mnr).lower()
+
+    response = requests.get(f"{URL}/api/creations/search", params=params)
+
+    if response.status_code == 200:
+        r = response.json()
+        
+        error = r.get("error")
+                
+        if error == "error_creation_not_found":
+            return "Error: Creation not found."
+
+        return {
+            "total": r.get("total", 0),
+            "creations": [
+                {
+                    "id": c.get("playerCreationId"),
+                    "name": c.get("name"),
+                    "description": c.get("description"),
+                    "rating": c.get("rating"),
+                    "creatorUsername": c.get("creatorUsername"),
+                    "type": c.get("type"),
+                    "tags": c.get("tags"),
+                    "isMNR": c.get("isMNR"),
+                    "createdAt": c.get("createdAt"),
+                    "downloads": c.get("downloads", {}).get("all_time"),
+                    "views": c.get("views", {}).get("all_time"),
+                    "points": c.get("points", {}).get("all_time"),
+                    "bestLapTime": (
+                        c.get("records", {}).get("bestLapTime")
+                        if c.get("type") == "TRACK" else None
+                    ),
+                    "longestDrift": (
+                        c.get("records", {}).get("longestDrift")
+                        if c.get("type") == "TRACK" else None
+                    ),
+                    "longestHangTime": (
+                        c.get("records", {}).get("longestHangTime")
+                        if c.get("type") == "TRACK" else None
+                    ),
+                }
+                for c in r.get("creations", [])
+            ],
+        }
+
+    return "Error: Unable to fetch creations stats."
+
+def get_creations_stats_by_username(
+    username,
+    creation_type=None,
+    platform=None,
+    is_mnr=None,
+    page=1,
+    per_page=6,
+):
+    params: dict[str, str | int] = {
+        "page": page,
+        "perPage": per_page,
+    }
+
+    if creation_type is not None:
+        params["type"] = creation_type
+
+    if platform is not None:
+        params["platform"] = platform
+
+    is_mnr = True if is_mnr is None else is_mnr
+    params["isMnr"] = str(is_mnr).lower()
+
+    response = requests.get(f"{URL}/api/creations/{username}", params=params)
+
+    if response.status_code == 200:
+        r = response.json()
+        
+        error = r.get("error")
+                
+        if error == "error_creation_not_found":
+            return "Error: Creation not found."
+
+        return {
+            "total": r.get("total", 0),
+            "creations": [
+                {
+                    "id": c.get("playerCreationId"),
+                    "name": c.get("name"),
+                    "description": c.get("description"),
+                    "rating": c.get("rating"),
+                    "creatorUsername": c.get("creatorUsername"),
+                    "type": c.get("type"),
+                    "tags": c.get("tags"),
+                    "isMNR": c.get("isMNR"),
+                    "createdAt": c.get("createdAt"),
+                    "downloads": c.get("downloads", {}).get("all_time"),
+                    "views": c.get("views", {}).get("all_time"),
+                    "points": c.get("points", {}).get("all_time"),
+                    "bestLapTime": (
+                        c.get("records", {}).get("bestLapTime")
+                        if c.get("type") == "TRACK" else None
+                    ),
+                    "longestDrift": (
+                        c.get("records", {}).get("longestDrift")
+                        if c.get("type") == "TRACK" else None
+                    ),
+                    "longestHangTime": (
+                        c.get("records", {}).get("longestHangTime")
+                        if c.get("type") == "TRACK" else None
+                    ),
+                }
+                for c in r.get("creations", [])
+            ],
+        }
+
+    return "Error: Unable to fetch creations stats."
+
+def get_topmods():
+    response = requests.get(f"{URL}/api/topmods")
+
+    if response.status_code == 200:
+        r = response.json()
+
+        if isinstance(r, dict):
+            creations_data = r.get("creations", [])
+        elif isinstance(r, list):
+            creations_data = r
+        else:
+            return "Error: Unable to fetch top mods."
+
+        return [
+            {
+                "id": c.get("id", c.get("playerCreationId")),
+                "name": c.get("name"),
+                "description": c.get("description"),
+                "rating": c.get("rating"),
+                "creatorUsername": c.get("creatorUsername"),
+                "type": c.get("type"),
+                "tags": c.get("tags"),
+                "createdAt": c.get("createdAt"),
+                "downloads": (
+                    c.get("downloads", {}).get("all_time")
+                    if isinstance(c.get("downloads"), dict)
+                    else c.get("downloads")
+                ),
+                "views": (
+                    c.get("views", {}).get("all_time")
+                    if isinstance(c.get("views"), dict)
+                    else c.get("views")
+                ),
+                "points": (
+                    c.get("points", {}).get("all_time")
+                    if isinstance(c.get("points"), dict)
+                    else c.get("points")
+                ),
+            }
+            for c in creations_data
+        ]
+
+    return "Error: Unable to fetch top mods."
+
+def get_topkarts():
+    response = requests.get(f"{URL}/api/topkarts")
+
+    if response.status_code == 200:
+        r = response.json()
+
+        if isinstance(r, dict):
+            creations_data = r.get("creations", [])
+        elif isinstance(r, list):
+            creations_data = r
+        else:
+            return "Error: Unable to fetch top karts."
+
+        return [
+            {
+                "id": c.get("id", c.get("playerCreationId")),
+                "name": c.get("name"),
+                "description": c.get("description"),
+                "rating": c.get("rating"),
+                "creatorUsername": c.get("creatorUsername"),
+                "type": c.get("type"),
+                "tags": c.get("tags"),
+                "createdAt": c.get("createdAt"),
+                "downloads": (
+                    c.get("downloads", {}).get("all_time")
+                    if isinstance(c.get("downloads"), dict)
+                    else c.get("downloads")
+                ),
+                "views": (
+                    c.get("views", {}).get("all_time")
+                    if isinstance(c.get("views"), dict)
+                    else c.get("views")
+                ),
+                "points": (
+                    c.get("points", {}).get("all_time")
+                    if isinstance(c.get("points"), dict)
+                    else c.get("points")
+                ),
+            }
+            for c in creations_data
+        ]
+
+    return "Error: Unable to fetch top karts."
+
+def get_toptracks():
+    response = requests.get(f"{URL}/api/toptracks")
+
+    if response.status_code == 200:
+        r = response.json()
+
+        if isinstance(r, dict):
+            creations_data = r.get("creations", [])
+        elif isinstance(r, list):
+            creations_data = r
+        else:
+            return "Error: Unable to fetch top tracks."
+
+        return [
+            {
+                "id": c.get("id", c.get("playerCreationId")),
+                "name": c.get("name"),
+                "description": c.get("description"),
+                "rating": c.get("rating"),
+                "creatorUsername": c.get("creatorUsername"),
+                "type": c.get("type"),
+                "tags": c.get("tags"),
+                "createdAt": c.get("createdAt"),
+                "downloads": (
+                    c.get("downloads", {}).get("all_time")
+                    if isinstance(c.get("downloads"), dict)
+                    else c.get("downloads")
+                ),
+                "views": (
+                    c.get("views", {}).get("all_time")
+                    if isinstance(c.get("views"), dict)
+                    else c.get("views")
+                ),
+                "points": (
+                    c.get("points", {}).get("all_time")
+                    if isinstance(c.get("points"), dict)
+                    else c.get("points")
+                ),
+            }
+            for c in creations_data
+        ]
+
+    return "Error: Unable to fetch top tracks."
