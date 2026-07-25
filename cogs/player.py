@@ -65,6 +65,13 @@ class Player(commands.Cog):
         player_id = get_player_id(username)
         if player_id.isdigit():
             embed = discord.Embed(title=f"{username}'s Avatar")
+            
+            avatar = requests.get(f"{URL}/player_avatars/MNR/{player_id}/{avatar_type}.png?{int(time.time())}")
+            
+            if avatar.status_code != 200:
+                await interaction.response.send_message("Error: Unable to fetch avatar.", ephemeral=True)
+                return
+            
             embed.set_image(url=f"{URL}/player_avatars/MNR/{player_id}/{avatar_type}.png?{int(time.time())}")
             
             embed.set_footer(text=f"Player ID: {player_id} | Requested by: {interaction.user}", icon_url=interaction.user.display_avatar.url)

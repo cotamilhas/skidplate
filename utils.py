@@ -1,5 +1,7 @@
 import requests
 import discord
+from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime, timedelta, timezone
 from config import URL
 
 
@@ -183,8 +185,8 @@ def get_creations_stats_by_query(
     if platform is not None:
         params["platform"] = platform
 
-    resolved_is_mnr = True if is_mnr is None else is_mnr
-    params["isMnr"] = str(resolved_is_mnr).lower()
+    is_mnr = True if is_mnr is None else is_mnr
+    params["isMnr"] = str(is_mnr).lower()
 
     response = requests.get(f"{URL}/api/creations/search", params=params)
 
@@ -497,3 +499,79 @@ def get_instance_name():
         return response.text
 
     return "Error: Unable to fetch instance name."
+
+def reset_in_seconds_to_discord_timestamp(seconds):
+    future_time = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    return f"<t:{int(future_time.timestamp())}:R>"
+
+def format_time(time):
+    if isinstance(time, str) and ":" in time:
+        parts = time.split(":")
+        if len(parts) == 3:
+            minutes = int(parts[0])
+            seconds = int(parts[1])
+            milliseconds = int(parts[2])
+            return f"{minutes:02}:{seconds:02}:{milliseconds:03}"
+        if len(parts) == 2:
+            seconds = int(parts[0])
+            milliseconds = int(parts[1])
+            return f"00:{seconds:02}:{milliseconds:03}"
+
+    total_ms = int((Decimal(str(time)) * 1000).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+    minutes = total_ms // 60000
+    seconds = (total_ms % 60000) // 1000
+    milliseconds = total_ms % 1000
+
+    return f"{minutes:02}:{seconds:02}:{milliseconds:03}"
+
+def get_hotlap_scores():
+    response = requests.get(f"{URL}/api/hotlap")
+
+    if response.status_code == 200:
+        r = response.json()
+        
+        return {
+            "id": r.get("track", {}).get("id"),
+            "name": r.get("track", {}).get("name"),
+            "rating": r.get("track", {}).get("rating"),
+            "creatorUsername": r.get("track", {}).get("creatorUsername"),
+            "resetInSeconds": r.get("resetInSeconds"),
+            "topTimes": [
+                {
+                    "rank": t.get("rank"),
+                    "scoreId": t.get("scoreId"),
+                    "playerUsername": t.get("playerUsername"),
+                    "bestLapTime": t.get("bestLapTime"),
+                    "updatedAt": t.get("updatedAt"),
+                }
+                for t in r.get("topTimes", [])
+            ]
+        }
+        
+    return "Error: Unable to fetch hotlap scores."
+
+def get_time_trial_scores(track_id):
+    response = requests.get(f"{URL}/api/score?trackId={track_id}&page=1&perPage=10")
+
+    if response.status_code == 200:
+        r = response.json()
+        
+        return {
+            "id": r.get("track", {}).get("id"),
+            "name": r.get("track", {}).get("name"),
+            "rating": r.get("track", {}).get("rating"),
+            "creatorUsername": r.get("track", {}).get("creatorUsername"),
+            "scores": [
+                {
+                    "rank": t.get("rank"),
+                    "id": t.get("id"),
+                    "playerUsername": t.get("playerUsername"),
+                    "bestLapTime": t.get("bestLapTime"),
+                    "updatedAt": t.get("updatedAt"),
+                }
+                for t in r.get("scores", [])
+            ]
+        }
+        
+    return "Error: Unable to fetch time trial scores."

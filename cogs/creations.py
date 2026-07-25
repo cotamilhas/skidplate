@@ -222,7 +222,7 @@ class Creation(commands.Cog):
         
         embed = discord.Embed(title=f"{creation_stats.get('name')}")
         embed.description = f"{creation_stats.get('description')}"
-        embed.set_thumbnail(url=f"{URL}/player_creations/{creation_id}/preview_image.png?{int(time.time())}")
+        embed.set_thumbnail(url=f"{URL}/player_creations/{creation_id}/preview_image.png")
         embed.add_field(name="Creator", value=creation_stats.get("creatorUsername"), inline=False)
         
         embed.add_field(name="Rating", value=creation_stats.get("rating"), inline=True)
@@ -325,6 +325,7 @@ class Creation(commands.Cog):
             return
 
         embed = build_topcreations_embed(top_mods, interaction, title="Top Mods")
+        embed.set_thumbnail(url=f"{URL}/player_creations/{top_mods[0].get('id')}/preview_image.png")
         await interaction.response.send_message(embed=embed)
         
     @app_commands.command(name="topkarts", description="Get the top karts.")
@@ -339,6 +340,7 @@ class Creation(commands.Cog):
             return
 
         embed = build_topcreations_embed(top_karts, interaction, title="Top Karts")
+        embed.set_thumbnail(url=f"{URL}/player_creations/{top_karts[0].get('id')}/preview_image.png")
         await interaction.response.send_message(embed=embed)
         
     @app_commands.command(name="toptracks", description="Get the top tracks.")
@@ -353,7 +355,9 @@ class Creation(commands.Cog):
             return
 
         embed = build_topcreations_embed(top_tracks, interaction, title="Top Tracks")
+        embed.set_thumbnail(url=f"{URL}/player_creations/{top_tracks[0].get('id')}/preview_image.png")
         await interaction.response.send_message(embed=embed)
+        
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Creation(bot))
