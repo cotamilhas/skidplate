@@ -29,6 +29,27 @@ bot = Bot(
     intents=intents
 )
 
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: Exception) -> None:
+    original = getattr(error, "original", error)
+
+    if isinstance(original, discord.NotFound) and getattr(original, "code", None) == 10062:
+        command_name = interaction.command.qualified_name if interaction.command else "unknown"
+        logger.warning("Expired interaction for command '%s'.", command_name)
+        return
+
+    command_name = interaction.command.qualified_name if interaction.command else "unknown"
+    logger.exception("Unhandled app command error in '%s': %s", command_name, original)
+
+    error_message = "Error: Command failed. Please try again."
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(error_message, ephemeral=True)
+        else:
+            await interaction.response.send_message(error_message, ephemeral=True)
+    except discord.HTTPException:
+        pass
+
 @bot.event
 async def on_ready():
     if bot.user is None:
@@ -36,7 +57,7 @@ async def on_ready():
     
     from config import URL
     try:
-        response = requests.get(f"{URL}/api/GetInstanceName", timeout=10)
+        response = await asyncio.to_thread(requests.get, f"{URL}/api/GetInstanceName", timeout=10)
     except requests.RequestException as exc:
         logger.error("Failed to retrieve instance name: %s", exc)
         await bot.close()

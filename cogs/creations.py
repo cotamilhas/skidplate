@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import time
+import asyncio
 import math
 from typing import Callable, Any
 
@@ -55,6 +55,7 @@ def build_topcreations_embed(top_creations: list[dict], interaction: discord.Int
     for rank, creation in enumerate(top_creations, start=1):
         creation_id = creation.get("id")
         name = creation.get("name")
+        description = creation.get("description")
         creator = creation.get("creatorUsername")
         rating = creation.get("rating")
         points = creation.get("points")
@@ -64,9 +65,10 @@ def build_topcreations_embed(top_creations: list[dict], interaction: discord.Int
         embed.add_field(
             name=f"#{rank} | {name} `{creation_id}`",
             value=(
-                f"Creator: {creator}\n"
-                f"Rating: {rating} | XP: {points}\n"
-                f"Total XP: {points} | Downloads: {downloads} | Views: {views}"
+                f"By: {creator}\n"
+                f"Rating: `{rating}` | XP: `{points}`\n"
+                f"Total XP: `{points}` | Downloads: `{downloads}` | Views: `{views}`\n"
+                f"Description: _{description}_"
             ),
             inline=False,
         )
@@ -116,10 +118,11 @@ class CreationListView(discord.ui.View):
         self.next_button.disabled = self.current_page >= self.total_pages
 
     async def _fetch_and_update(self, interaction: discord.Interaction, page: int):
-        data = self.fetch_function(
+        data = await asyncio.to_thread(
+            self.fetch_function,
             **self.fetch_kwargs,
             page=page,
-            per_page=self.per_page
+            per_page=self.per_page,
         )
 
         if isinstance(data, str):
@@ -172,15 +175,16 @@ async def send_paginated_creation_list(
     fetch_kwargs: dict,
     per_page: int = 6
 ):
-    data = fetch_function(**fetch_kwargs, page=1, per_page=per_page)
+    await interaction.response.defer()
+    data = await asyncio.to_thread(fetch_function, **fetch_kwargs, page=1, per_page=per_page)
 
     if isinstance(data, str):
-        await interaction.response.send_message(data, ephemeral=True)
+        await interaction.followup.send(data, ephemeral=True)
         return
 
     creations, total_results = normalize_creations_payload(data)
     if not creations:
-        await interaction.response.send_message("No creations found.", ephemeral=True)
+        await interaction.followup.send("No creations found.", ephemeral=True)
         return
 
     total_pages = max(1, math.ceil(total_results / per_page))
@@ -196,7 +200,7 @@ async def send_paginated_creation_list(
         total_results=total_results,
     )
 
-    await interaction.response.send_message(embed=embed, view=view)
+    await interaction.followup.send(embed=embed, view=view)
 
 
 class Creation(commands.Cog):
@@ -209,21 +213,19 @@ class Creation(commands.Cog):
         if creation_id < 10000:
             await interaction.response.send_message("Error: Creation not found.", ephemeral=True)
             return
+
+        await interaction.response.defer()
                 
-        creation_stats = get_creation_stats(creation_id)
-        
-        if creation_stats == "Error: Creation not found.":
-            await interaction.response.send_message(creation_stats, ephemeral=True)
-            return
+        creation_stats = await asyncio.to_thread(get_creation_stats, creation_id)
         
         if isinstance(creation_stats, str):
-            await interaction.response.send_message(creation_stats, ephemeral=True)
+            await interaction.followup.send(creation_stats, ephemeral=True)
             return
         
         embed = discord.Embed(title=f"{creation_stats.get('name')}")
-        embed.description = f"{creation_stats.get('description')}"
+        embed.description = f"By: _{creation_stats.get('creatorUsername')}_"
         embed.set_thumbnail(url=f"{URL}/player_creations/{creation_id}/preview_image.png")
-        embed.add_field(name="Creator", value=creation_stats.get("creatorUsername"), inline=False)
+        embed.add_field(name="Description", value=f"> {creation_stats.get('description')}", inline=False)
         
         embed.add_field(name="Rating", value=creation_stats.get("rating"), inline=True)
         embed.add_field(name="Type", value=rename_creation_type(creation_stats.get("type")), inline=True)
@@ -239,7 +241,7 @@ class Creation(commands.Cog):
         
         embed.set_footer(text=f"Requested by: {interaction.user}", icon_url=interaction.user.display_avatar.url)
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         
     @app_commands.command(name="creation_query", description="Search creations by name.")
     @app_commands.describe(
@@ -318,45 +320,48 @@ class Creation(commands.Cog):
         self,
         interaction: discord.Interaction,
     ):
-        top_mods = get_topmods()
+        await interaction.response.defer()
+        top_mods = await asyncio.to_thread(get_topmods)
 
         if isinstance(top_mods, str):
-            await interaction.response.send_message(top_mods, ephemeral=True)
+            await interaction.followup.send(top_mods, ephemeral=True)
             return
 
         embed = build_topcreations_embed(top_mods, interaction, title="Top Mods")
         embed.set_thumbnail(url=f"{URL}/player_creations/{top_mods[0].get('id')}/preview_image.png")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         
     @app_commands.command(name="topkarts", description="Get the top karts.")
     async def topkarts(
         self,
         interaction: discord.Interaction,
     ):
-        top_karts = get_topkarts()
+        await interaction.response.defer()
+        top_karts = await asyncio.to_thread(get_topkarts)
 
         if isinstance(top_karts, str):
-            await interaction.response.send_message(top_karts, ephemeral=True)
+            await interaction.followup.send(top_karts, ephemeral=True)
             return
 
         embed = build_topcreations_embed(top_karts, interaction, title="Top Karts")
         embed.set_thumbnail(url=f"{URL}/player_creations/{top_karts[0].get('id')}/preview_image.png")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         
     @app_commands.command(name="toptracks", description="Get the top tracks.")
     async def toptracks(
         self,
         interaction: discord.Interaction,
     ):
-        top_tracks = get_toptracks()
+        await interaction.response.defer()
+        top_tracks = await asyncio.to_thread(get_toptracks)
 
         if isinstance(top_tracks, str):
-            await interaction.response.send_message(top_tracks, ephemeral=True)
+            await interaction.followup.send(top_tracks, ephemeral=True)
             return
 
         embed = build_topcreations_embed(top_tracks, interaction, title="Top Tracks")
         embed.set_thumbnail(url=f"{URL}/player_creations/{top_tracks[0].get('id')}/preview_image.png")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         
 
 async def setup(bot: commands.Bot):

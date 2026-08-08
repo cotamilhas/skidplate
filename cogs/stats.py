@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+import asyncio
 import math
 from typing import Any, Callable
 
@@ -78,7 +79,8 @@ class PlayersOnlineView(discord.ui.View):
         self.next_button.disabled = self.current_page >= self.total_pages
 
     async def _update_page(self, interaction: discord.Interaction, page: int) -> None:
-        data = self.fetch_function(
+        data = await asyncio.to_thread(
+            self.fetch_function,
             **self.fetch_kwargs,
             page=page,
             per_page=self.per_page,
@@ -136,15 +138,16 @@ async def send_paginated_players_online(
     fetch_kwargs: dict,
     per_page: int = 10,
 ) -> None:
-    data = fetch_function(**fetch_kwargs, page=1, per_page=per_page)
+    await interaction.response.defer()
+    data = await asyncio.to_thread(fetch_function, **fetch_kwargs, page=1, per_page=per_page)
 
     if isinstance(data, str):
-        await interaction.response.send_message(data, ephemeral=True)
+        await interaction.followup.send(data, ephemeral=True)
         return
 
     players, total_results = normalize_players_payload(data)
     if not players:
-        await interaction.response.send_message("No players found.", ephemeral=True)
+        await interaction.followup.send("No players found.", ephemeral=True)
         return
 
     total_pages = max(1, math.ceil(total_results / per_page))
@@ -160,7 +163,7 @@ async def send_paginated_players_online(
         total_results=total_results,
     )
 
-    await interaction.response.send_message(embed=embed, view=view)
+    await interaction.followup.send(embed=embed, view=view)
 
 
 class Stats(commands.Cog):
@@ -181,13 +184,16 @@ class Stats(commands.Cog):
         
     @app_commands.command(name="server_stats", description="Get the server stats.")
     async def server_stats(self, interaction: discord.Interaction) -> None:
-        instance_name = get_instance_name()
-        players_online_count = get_players_online_count()
-        total_players_count = get_total_players_count()
-        
-        creations_count = get_total_creations_count()
+        await interaction.response.defer()
+        instance_name, players_online_count, total_players_count, creations_count = await asyncio.gather(
+            asyncio.to_thread(get_instance_name),
+            asyncio.to_thread(get_players_online_count),
+            asyncio.to_thread(get_total_players_count),
+            asyncio.to_thread(get_total_creations_count),
+        )
+
         if isinstance(creations_count, str):
-            await interaction.response.send_message(creations_count, ephemeral=True)
+            await interaction.followup.send(creations_count, ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -210,7 +216,7 @@ class Stats(commands.Cog):
             icon_url=interaction.user.display_avatar.url,
         )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         
 
 async def setup(bot: commands.Bot) -> None:

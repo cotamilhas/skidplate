@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+import asyncio
 import time
 
 from config import URL
@@ -13,34 +14,29 @@ class Score(commands.Cog):
 
     @app_commands.command(name="hotlap", description="Get the current hotlap best times.")
     async def hotlap(self, interaction: discord.Interaction) -> None:
-        hotlap_scores = get_hotlap_scores()
+        await interaction.response.defer()
+        hotlap_scores = await asyncio.to_thread(get_hotlap_scores)
         
-        if hotlap_scores == "Error: Unable to fetch hotlap scores.":
-            await interaction.response.send_message(hotlap_scores, ephemeral=True)
+        if isinstance(hotlap_scores, str):
+            await interaction.followup.send(hotlap_scores, ephemeral=True)
             return
 
-        embed = discord.Embed(title=f"{hotlap_scores.get('name')}")
+        embed = discord.Embed(title="Hot Lap Leaderboard")
         embed.set_thumbnail(url=f"{URL}/player_creations/{hotlap_scores.get('id')}/preview_image.png")
+        embed.color = discord.Color.yellow()
+        embed.add_field(name=f"`{hotlap_scores.get('name')}`", value=f"By: _{hotlap_scores.get('creatorUsername')}_", inline=False)
         embed.add_field(name="Rating", value=hotlap_scores.get("rating"), inline=True)
-        embed.add_field(name="Creator", value=hotlap_scores.get("creatorUsername"), inline=True)
         embed.add_field(name="Reset In", value=reset_in_seconds_to_discord_timestamp(hotlap_scores.get("resetInSeconds")), inline=True)
         
         top_times = hotlap_scores.get("topTimes", [])
 
         if top_times:
-            leaderboard = ""
-
             for time in top_times:
-                leaderboard += (
-                    f"**#{time['rank']}** (`{time['scoreId']}`)\n"
-                    f"{time['playerUsername']} - `{format_time(time['bestLapTime'])}`\n"
-                )
-
-            embed.add_field(
-                name="Top Times",
-                value=leaderboard,
-                inline=False
-            )
+                embed.add_field(
+                    name=f"**#{time['rank']}** {time['playerUsername']} (`{time['scoreId']}`)",
+                    value=f"`{format_time(time['bestLapTime'])}`",
+                    inline=False
+                )   
         else:
             embed.add_field(
                 name="Top Times",
@@ -48,38 +44,33 @@ class Score(commands.Cog):
                 inline=False
             )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
         
     @app_commands.command(name="time-trials", description="Get a time trial by track ID.")
     @app_commands.describe(track_id="The track ID to get time trials for")
     async def time_trials(self, interaction: discord.Interaction, track_id: int) -> None:
-        time_trial_scores = get_time_trial_scores(track_id)
+        await interaction.response.defer()
+        time_trial_scores = await asyncio.to_thread(get_time_trial_scores, track_id)
         
-        if time_trial_scores == "Error: Unable to fetch time trial scores.":
-            await interaction.response.send_message(time_trial_scores, ephemeral=True)
+        if isinstance(time_trial_scores, str):
+            await interaction.followup.send(time_trial_scores, ephemeral=True)
             return
 
-        embed = discord.Embed(title=f"{time_trial_scores.get('name')}")
+        embed = discord.Embed(title="Time Trial Leaderboard")
+        embed.color = discord.Color.yellow()
         embed.set_thumbnail(url=f"{URL}/player_creations/{time_trial_scores.get('id')}/preview_image.png")
         embed.add_field(name="Rating", value=time_trial_scores.get("rating"), inline=True)
-        embed.add_field(name="Creator", value=time_trial_scores.get("creatorUsername"), inline=True)
+        embed.add_field(name=f"`{time_trial_scores.get('name')}`", value=f"By: _{time_trial_scores.get('creatorUsername')}_", inline=True)
         
         top_times = time_trial_scores.get("scores", [])
 
         if top_times:
-            leaderboard = ""
-
             for time in top_times:
-                leaderboard += (
-                    f"**#{time['rank']}** (`{time['id']}`)\n"
-                    f"{time['playerUsername']} - `{format_time(time['bestLapTime'])}`\n"
+                embed.add_field(
+                    name=f"**#{time['rank']}** {time['playerUsername']} (`{time['scoreId']}`)",
+                    value=f"`{format_time(time['bestLapTime'])}`",
+                    inline=False
                 )
-
-            embed.add_field(
-                name="Top Times",
-                value=leaderboard,
-                inline=False
-            )
         else:
             embed.add_field(
                 name="Top Times",
@@ -87,7 +78,7 @@ class Score(commands.Cog):
                 inline=False
             )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot) -> None:

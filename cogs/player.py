@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+import asyncio
 import time
 
 from config import URL
@@ -14,14 +15,11 @@ class Player(commands.Cog):
     @app_commands.command(name="player", description="Get a player's stats.")
     @app_commands.describe(username="The player to get stats for")
     async def player(self, interaction: discord.Interaction, username: str) -> None:
-        player_stats = get_player_stats(username)
-        
-        if player_stats == "Error: Player not found.":
-            await interaction.response.send_message(player_stats, ephemeral=True)
-            return
+        await interaction.response.defer()
+        player_stats = await asyncio.to_thread(get_player_stats, username)
         
         if isinstance(player_stats, str):
-            await interaction.response.send_message(player_stats, ephemeral=True)
+            await interaction.followup.send(player_stats, ephemeral=True)
             return
         
         user_id = player_stats.get("userId")
@@ -52,7 +50,7 @@ class Player(commands.Cog):
         
         embed.set_footer(text=f"Player ID: {user_id} | Requested by: {interaction.user}", icon_url=interaction.user.display_avatar.url)
 
-        await interaction.response.send_message(embed=embed, file=file)
+        await interaction.followup.send(embed=embed, file=file)
         
     @app_commands.command(name="avatar", description="Get a player's avatar.")
     @app_commands.describe(username="The player to get the avatar for")
@@ -62,22 +60,26 @@ class Player(commands.Cog):
         app_commands.Choice(name="Secondary", value="secondary")
     ])
     async def avatar(self, interaction: discord.Interaction, username: str, avatar_type: str = "secondary") -> None:
-        player_id = get_player_id(username)
+        await interaction.response.defer()
+        player_id = await asyncio.to_thread(get_player_id, username)
         if player_id.isdigit():
             embed = discord.Embed(title=f"{username}'s Avatar")
-            
-            avatar = requests.get(f"{URL}/player_avatars/MNR/{player_id}/{avatar_type}.png?{int(time.time())}")
+
+            avatar = await asyncio.to_thread(
+                requests.get,
+                f"{URL}/player_avatars/MNR/{player_id}/{avatar_type}.png?{int(time.time())}",
+            )
             
             if avatar.status_code != 200:
-                await interaction.response.send_message("Error: Unable to fetch avatar.", ephemeral=True)
+                await interaction.followup.send("Error: Unable to fetch avatar.", ephemeral=True)
                 return
             
             embed.set_image(url=f"{URL}/player_avatars/MNR/{player_id}/{avatar_type}.png?{int(time.time())}")
             
             embed.set_footer(text=f"Player ID: {player_id} | Requested by: {interaction.user}", icon_url=interaction.user.display_avatar.url)
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
         else:
-            await interaction.response.send_message(player_id, ephemeral=True)
+            await interaction.followup.send(player_id, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

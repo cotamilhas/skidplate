@@ -22,3 +22,32 @@ _load_env_file()
 TOKEN = os.getenv("TOKEN")
 URL = os.getenv("URL")
 COMMAND_PREFIX = os.getenv("COMMAND_PREFIX", "!")
+MODERATOR_ROLE_ID = os.getenv("MODERATOR_ROLE_ID")
+MAX_QUOTA = int(os.getenv("MAX_QUOTA", 0))
+
+MODERATOR_PERMISSIONS = {
+    "ManageModerators",
+    "BanUsers",
+    "ChangeUserSettings",
+    "ChangeUserQuota",
+    "ResetUserStats",
+    "ManageUserSessions",
+    "RemoveUsers",
+    "ChangeCreationStatus",
+    "ResetCreationStats",
+    "RemovePlayerCreations",
+    "RemovePlayerCreationComments",
+    "RemoveProfileComments",
+    "RemoveProfileAvatars",
+    "ManageAnnouncements",
+    "ManageHotlap",
+    "RemoveScores",
+    "ManageSystemEvents",
+    "ManageWhitelist",
+    "ManageBannedIPs",
+    "ManageBannedConsoleIDs",
+    "ManageTeamPicks",
+    "ViewGriefReports",
+    "ViewPlayerComplaints",
+    "ViewPlayerCreationComplaints",
+}
